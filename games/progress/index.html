@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#f2ede3">
+    <meta name="description" content="从第一天报到，走完一段干部生涯。">
+    <title>进步模拟器 · 指尖游戏厅</title>
+    <link rel="stylesheet" href="styles.css">
+    <script src="../../js/save-store.js" defer></script>
+    <script src="rules.js" defer></script>
+    <script src="content.js" defer></script>
+    <script src="career.js" defer></script>
+    <script src="game.js" defer></script>
+  </head>
+  <body>
+    <header class="masthead">
+      <div class="shell masthead-inner">
+        <a class="lobby-link" href="../../index.html">‹ 大厅</a>
+        <span class="brand"><span class="document-icon" aria-hidden="true"></span>进步模拟器</span>
+        <span class="save-status" id="save-status" role="status" hidden>已存档</span>
+      </div>
+    </header>
+
+    <main class="shell">
+      <section id="intake" hidden>
+        <header class="entry-hero">
+          <div class="entry-copy">
+            <p class="place">云岬省</p>
+            <h1>进步模拟器</h1>
+            <p>从第一天报到，到你交出最后一份履历。</p>
+          </div>
+          <img src="../../assets/progress.webp" alt="雨后的虚构县城" width="1332" height="888">
+        </header>
+        <div class="intake-layout">
+          <form id="intake-form" class="entry-form paper">
+            <div class="section-heading">
+              <h2>选择录用通知书</h2>
+            </div>
+            <div class="form-fields">
+              <label for="name">姓名<input id="name" name="name" type="text" maxlength="16" placeholder="顾行之" autocomplete="off"></label>
+              <label for="degree">学历<select id="degree" name="degree">
+                <option value="bachelor">本科</option>
+                <option value="master">硕士</option>
+                <option value="doctor">博士</option>
+              </select></label>
+              <label class="member-field"><input id="member" name="member" type="checkbox">在校期间已转为正式党员</label>
+            </div>
+            <fieldset class="offers">
+              <legend class="sr-only">录用通知书</legend>
+              <div class="offer-grid" id="offers"></div>
+            </fieldset>
+            <p id="intake-message" class="form-message" role="status" hidden></p>
+            <p id="inline-preview" class="inline-preview"></p>
+            <div class="entry-actions">
+              <button class="button primary" id="report" type="submit">带着通知书去报到 <span aria-hidden="true">→</span></button>
+            </div>
+          </form>
+
+          <section class="entry-summary paper" aria-labelledby="notice-title">
+            <span class="section-rule" aria-hidden="true"></span>
+            <h2 id="notice-title">录用通知书</h2>
+            <p id="notice-unit" class="notice-unit"></p>
+            <p id="notice-first" class="muted"></p>
+            <dl class="notice-details" id="notice-details"></dl>
+            <p class="fine-print">地名、人物和案件为虚构。任用手册附有公开制度的出处。</p>
+          </section>
+        </div>
+      </section>
+
+      <section id="career" hidden>
+        <header class="career-banner">
+          <div class="career-identity">
+            <p class="career-place" id="career-place"></p>
+            <h1 id="career-title"></h1>
+            <p id="career-caption" class="career-caption"></p>
+          </div>
+          <dl class="header-metrics" id="header-metrics"></dl>
+        </header>
+        <nav class="career-tabs" id="career-tabs" aria-label="生涯视图">
+          <button type="button" data-view="desk" aria-controls="desk" aria-pressed="true">工作台</button>
+          <button type="button" data-view="dossier" aria-controls="dossier" aria-pressed="false">履历与任用</button>
+          <button type="button" data-view="handbook" aria-controls="handbook" aria-pressed="false">资格手册</button>
+        </nav>
+
+        <section id="desk" aria-label="工作台">
+          <div class="desk-grid">
+            <div class="main-column">
+              <section class="paper inquiry" id="inquiry" hidden></section>
+              <section class="paper briefing" id="briefing" aria-label="本期议题"></section>
+              <section class="paper workload" id="workload" aria-labelledby="workload-title">
+                <div class="section-heading">
+                  <h2 id="workload-title">在办事项</h2>
+                  <span class="muted" id="workload-count"></span>
+                </div>
+                <div id="project-list" class="project-list"></div>
+                <details class="proposal-drawer" id="proposal-drawer">
+                  <summary>接办新事项</summary>
+                  <div class="proposal-list" id="proposal-list"></div>
+                </details>
+              </section>
+            </div>
+            <aside class="side-column" aria-label="本期安排和交接">
+              <section class="paper appointments" id="desk-appointments"></section>
+              <section class="paper actions" aria-labelledby="actions-title">
+                <div class="section-heading"><h2 id="actions-title">其他安排</h2></div>
+                <div class="side-actions" id="side-actions"></div>
+              </section>
+              <section class="paper journal" aria-labelledby="journal-title">
+                <div class="section-heading"><h2 id="journal-title">最近记录</h2></div>
+                <ol class="timeline" id="journal-list"></ol>
+              </section>
+            </aside>
+          </div>
+          <footer class="turn-bar">
+            <div class="turn-summary">
+              <strong id="effort-label">本期精力</strong>
+              <div id="effort-meter" class="effort-meter" aria-hidden="true"></div>
+            </div>
+            <p class="turn-notice" id="turn-notice"></p>
+            <button type="button" id="advance" class="button primary">办理下一期 <span aria-hidden="true">→</span></button>
+          </footer>
+        </section>
+
+        <section id="dossier" aria-label="履历与任用" hidden>
+          <div class="dossier-grid">
+            <div class="main-column">
+              <section class="paper facts" aria-labelledby="facts-title">
+                <div class="section-heading"><h2 id="facts-title">个人履历</h2></div>
+                <dl class="facts-grid" id="facts"></dl>
+              </section>
+              <section class="paper personnel" aria-labelledby="personnel-title">
+                <div class="section-heading"><h2 id="personnel-title">任用与流动</h2></div>
+                <div id="review-panel"></div>
+                <div id="opening-list" class="opening-list"></div>
+              </section>
+              <section class="paper" aria-labelledby="past-title">
+                <div class="section-heading"><h2 id="past-title">事项档案</h2></div>
+                <div id="past-projects"></div>
+              </section>
+            </div>
+            <aside class="side-column">
+              <section class="paper" aria-labelledby="people-title">
+                <div class="section-heading"><h2 id="people-title">同事</h2></div>
+                <div id="people-list"></div>
+              </section>
+              <section class="paper" aria-labelledby="record-title">
+                <div class="section-heading"><h2 id="record-title">履历变动</h2></div>
+                <ol class="timeline" id="career-log"></ol>
+                <button class="button secondary" id="resign" type="button">申请辞去公职</button>
+                <p class="muted small" id="resign-note"></p>
+              </section>
+            </aside>
+          </div>
+        </section>
+
+        <section id="handbook" class="handbook paper" aria-labelledby="handbook-title" hidden>
+          <div class="section-heading">
+            <h2 id="handbook-title">资格手册</h2>
+          </div>
+          <div id="handbook-content"></div>
+        </section>
+      </section>
+
+      <section id="outcome" class="outcome" hidden aria-labelledby="outcome-title">
+        <div class="outcome-head">
+          <p id="outcome-date"></p>
+          <h1 id="outcome-title"></h1>
+          <p id="outcome-detail"></p>
+        </div>
+        <div class="paper outcome-body">
+          <dl class="facts-grid" id="outcome-facts"></dl>
+          <h2>生涯里的几件事</h2>
+          <ol class="timeline" id="outcome-log"></ol>
+          <div class="end-actions">
+            <a class="button secondary" href="../../index.html">返回大厅</a>
+            <button type="button" class="button primary" id="restart">另开一局</button>
+          </div>
+        </div>
+      </section>
+      <noscript><p class="paper">请开启 JavaScript 以进入游戏。</p></noscript>
+    </main>
+    <dialog class="paper decision-dialog" id="resign-dialog" aria-labelledby="resign-title">
+      <form method="dialog">
+        <h2 id="resign-title">申请辞去公职？</h2>
+        <p>确认后，本局将办理离职并进入履历回顾。</p>
+        <div class="end-actions">
+          <button type="submit" class="button secondary" value="cancel" autofocus>返回</button>
+          <button type="submit" class="button primary" value="leave">确认辞职</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog class="paper decision-dialog" id="restart-dialog" aria-labelledby="restart-title">
+      <form method="dialog">
+        <h2 id="restart-title">开始新的职业生涯？</h2>
+        <p>报到并保存后，新进度会覆盖这款游戏的存档。</p>
+        <div class="end-actions">
+          <button type="submit" class="button secondary" value="cancel" autofocus>返回</button>
+          <button type="submit" class="button primary" value="start">选择新开局</button>
+        </div>
+      </form>
+    </dialog>
+    <p class="sr-only" role="status" id="announcement"></p>
+  </body>
+</html>
