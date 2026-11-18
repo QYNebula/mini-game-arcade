@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#f8f8f3">
+    <meta name="description" content="指尖游戏厅。浏览解压、解谜和反应类触屏小游戏。">
+    <title>指尖游戏厅</title>
+    <link rel="stylesheet" href="styles.css">
+    <script src="js/catalog.js" defer></script>
+    <script src="js/save-store.js" defer></script>
+    <script src="js/lobby.js" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#game-library">跳到游戏库</a>
+    <header class="site-header" id="top">
+      <div class="shell header-inner">
+        <a class="brand" href="#top">
+          <span class="brand-icon" aria-hidden="true"></span>
+          <span>指尖游戏厅</span>
+        </a>
+        <nav class="navigation" aria-label="主导航">
+          <a class="navigation-current" href="#top" aria-current="page">大厅</a>
+          <button class="saves-toggle" id="open-saves" type="button" aria-haspopup="dialog">
+            <span class="bookmark-icon" aria-hidden="true"></span>
+            我的存档
+          </button>
+        </nav>
+      </div>
+    </header>
+
+    <main class="shell">
+      <section class="hero" aria-labelledby="lobby-title">
+        <div class="hero-art" aria-hidden="true">
+          <img src="assets/arcade-hero.webp" alt="" width="1440" height="960" fetchpriority="high">
+        </div>
+        <div class="hero-copy">
+          <h1 id="lobby-title">小游戏大厅</h1>
+          <p>想冲洗、收纳，还是解个谜？</p>
+          <a class="button button-primary" href="#game-library">
+            浏览游戏<span aria-hidden="true">↓</span>
+          </a>
+        </div>
+      </section>
+
+      <section class="library" id="game-library" aria-labelledby="library-title" tabindex="-1">
+        <div class="library-header">
+          <h2 id="library-title">游戏库</h2>
+          <div class="filters" role="group" aria-label="按玩法筛选">
+            <button type="button" data-category="all" aria-pressed="true">全部</button>
+            <button type="button" data-category="relax" aria-pressed="false">解压</button>
+            <button type="button" data-category="puzzle" aria-pressed="false">解谜</button>
+            <button type="button" data-category="reaction" aria-pressed="false">反应</button>
+          </div>
+        </div>
+        <p class="library-summary" id="library-summary" role="status"></p>
+        <ul class="game-grid" id="game-list"></ul>
+        <noscript><p>请开启浏览器的 JavaScript 来浏览游戏和读取存档。</p></noscript>
+      </section>
+    </main>
+
+    <footer class="shell site-footer">
+      <span>指尖游戏厅</span>
+      <a href="#top">回到顶部 <span aria-hidden="true">↑</span></a>
+    </footer>
+
+    <template id="game-card-template">
+      <li>
+        <button class="game-card" type="button" aria-haspopup="dialog">
+          <span class="game-cover">
+            <img alt="" width="512" height="512" decoding="async">
+            <span class="game-status" data-role="status"></span>
+          </span>
+          <span class="game-card-body">
+            <span class="game-category" data-role="category"></span>
+            <span class="game-card-title" data-role="title"></span>
+            <span class="game-card-summary" data-role="summary"></span>
+            <span class="card-arrow" aria-hidden="true">›</span>
+          </span>
+        </button>
+      </li>
+    </template>
+
+    <dialog class="panel" id="game-dialog" aria-labelledby="game-title">
+      <div class="panel-header">
+        <div>
+          <p class="panel-category" id="game-category"></p>
+          <h2 id="game-title"></h2>
+        </div>
+        <form method="dialog">
+          <button class="close-button" type="submit" aria-label="关闭游戏详情" autofocus>×</button>
+        </form>
+      </div>
+      <div class="panel-cover">
+        <img id="game-image" alt="" width="512" height="512">
+      </div>
+      <div class="panel-body">
+        <p class="game-description" id="game-description"></p>
+        <p class="planned-note" id="planned-note">候选游戏，待选定后开发。</p>
+        <p class="progress-note" id="game-progress" hidden></p>
+        <div class="panel-actions" id="game-actions" hidden>
+          <button class="button button-primary" id="resume-game" type="button">继续游戏</button>
+          <button class="button button-secondary" id="new-game" type="button">新游戏</button>
+        </div>
+        <section class="restart-prompt" id="restart-prompt" aria-labelledby="restart-title" hidden>
+          <h3 id="restart-title">从头开始这款游戏？</h3>
+          <p>保存新进度后，会覆盖这款游戏的旧存档。</p>
+          <div class="panel-actions">
+            <button class="button button-secondary" id="cancel-restart" type="button">取消</button>
+            <button class="button button-primary" id="confirm-restart" type="button">确认新游戏</button>
+          </div>
+        </section>
+      </div>
+    </dialog>
+
+    <dialog class="panel" id="saves-dialog" aria-labelledby="saves-title">
+      <div class="panel-header">
+        <h2 id="saves-title">我的存档</h2>
+        <form method="dialog">
+          <button class="close-button" type="submit" aria-label="关闭存档面板" autofocus>×</button>
+        </form>
+      </div>
+      <div class="panel-body saves-body">
+        <div class="saves-empty" id="saves-empty">
+          <span class="empty-icon" aria-hidden="true"><span class="bookmark-icon"></span></span>
+          <h3>还没有存档</h3>
+          <p>游戏保存进度后，可以在这里接着玩。</p>
+        </div>
+        <ul class="save-list" id="save-list"></ul>
+        <p class="storage-note">游戏进度保存在当前浏览器。</p>
+      </div>
+    </dialog>
+
+    <template id="save-template">
+      <li class="save-row">
+        <img alt="" width="56" height="56" decoding="async">
+        <div class="save-row-text">
+          <strong data-role="title"></strong>
+          <span data-role="summary"></span>
+          <time></time>
+        </div>
+        <button class="button button-secondary" type="button">继续</button>
+      </li>
+    </template>
+  </body>
+</html>
