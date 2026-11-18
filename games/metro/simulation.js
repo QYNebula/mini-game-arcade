@@ -2,6 +2,8 @@ const METRO_LINE_COLORS = ["#167d71", "#cb5f41", "#6653a9", "#326fa5", "#a77a19"
 const METRO_CAR_CAPACITY = 18;
 const METRO_STEP = 0.25;
 const METRO_MAX_TRAINS = 240;
+const METRO_MINUTES_PER_SECOND = 0.75;
+const METRO_DEMAND_INTERVAL = 1;
 
 class MetroMinQueue {
   items = [];
@@ -40,6 +42,8 @@ class MetroMinQueue {
 class MetroSimulation {
   constructor(state) {
     this.state = state;
+    state.finance ??= MetroNetwork.newLedger(state.time);
+    state.rails ??= {};
     this.stations = new Map(state.stations.map((station) => [station.id, station]));
     this.lines = new Map(state.lines.map((line) => [line.id, line]));
     this.rates = MetroWorld.demandRates(state);
@@ -58,7 +62,7 @@ class MetroSimulation {
   }
 
   platformLimit(stops) {
-    return stops.reduce((limit, id) => Math.min(limit, MetroWorld.types[this.stations.get(id).type].platform), Infinity);
+    return stops.reduce((limit, id) => Math.min(limit, this.stations.get(id).length), Infinity);
   }
 
   validate(stops, loop) {
@@ -67,63 +71,172 @@ class MetroSimulation {
     return "";
   }
 
-  addLine(stops, loop) {
-    if (this.validate(stops, loop)) return null;
-    const id = this.state.nextLine++;
-    const line = {
-      id, stops: [...stops], loop, cars: Math.min(4, this.platformLimit(stops)), count: 2, pending: null,
-      color: METRO_LINE_COLORS[(id - 1) % METRO_LINE_COLORS.length],
-    };
-    this.state.lines.push(line);
-    this.lines.set(id, line);
-    this.seedTrains(line);
-    this.invalidate();
-    return line;
-  }
-
-  seedTrains(line, first = 0) {
-    const n = line.stops.length;
-    for (let index = first; index < line.count; index++) {
-      let at = 0;
-      let dir = 1;
-      if (line.loop) {
-        dir = index % 2 === 0 ? 1 : -1;
-        at = first ? 0 : Math.floor(index / line.count * n);
-      } else if (!first) {
-        const step = Math.floor(index / line.count * 2 * (n - 1));
-        dir = step < n - 1 ? 1 : -1;
-        at = dir === 1 ? step : 2 * (n - 1) - step;
+  reservations(omit = null) {
+    const usage = new Map();
+    for (const line of this.state.lines) {
+      if (line === omit) continue;
+      const reserved = MetroNetwork.stops(line);
+      if (line.pending?.config.stops) {
+        for (const id of MetroNetwork.stops(line.pending.config)) reserved.add(id);
       }
-      this.state.trains.push({
-        id: this.state.nextTrain++, line: line.id, at: line.stops[at], to: 0, dir,
-        phase: "arrive", ready: this.state.time + (first ? (index - first) * 0.75 : 0),
-        passengers: [], load: 0, retiring: false, wait: "",
-      });
+      for (const id of reserved) usage.set(id, (usage.get(id) || 0) + 1);
     }
+    return usage;
   }
 
-  changeLine(line, config) {
-    if (line.pending) return false;
-    if (!config.remove && (
-      this.validate(config.stops, config.loop) ||
-      !Number.isInteger(config.cars) || config.cars < 1 || config.cars > this.platformLimit(config.stops) ||
-      !Number.isSafeInteger(config.count) || config.count < 0 || config.count > METRO_MAX_TRAINS
-    )) return false;
+  checkLayout(config, previous) {
+    const error = this.validate(config.stops, config.loop);
+    if (error) return { error };
+    const branch = config.branch;
+    if (branch) {
+      const index = config.stops.indexOf(branch.fork);
+      if (config.loop || index < 0 || index >= config.stops.length - 1) {
+        return { error: "支线从往返线上的分岔站出发，主线还需继续到另一个终点。" };
+      }
+      if (!branch.tail.length || new Set(branch.tail).size !== branch.tail.length ||
+          branch.tail.some((id) => !this.stations.has(id) || config.stops.includes(id))) {
+        return { error: "请从分岔站拖到主线以外的车站。" };
+      }
+    }
+    const fleet = {
+      main: MetroNetwork.normalize(config.fleet.main),
+      branch: MetroNetwork.normalize(config.fleet.branch),
+    };
+    if (!fleet.main || !fleet.branch) return { error: "编组和列车数量需要是整数。" };
+    if (MetroNetwork.fleetTotal(fleet.main) + MetroNetwork.fleetTotal(fleet.branch) > METRO_MAX_TRAINS) {
+      return { error: "每条线最多配置 " + METRO_MAX_TRAINS + " 列车。" };
+    }
+    const required = new Map();
+    for (const route of MetroNetwork.routes({ ...config, fleet })) {
+      const longest = route.fleet.at(-1)?.cars || 0;
+      for (const id of route.stops) required.set(id, Math.max(longest, required.get(id) || 0));
+    }
+    const already = this.reservations(previous);
+    const tracks = [];
+    const length = [];
+    for (const [id, cars] of required) {
+      const station = this.stations.get(id);
+      const desired = ((already.get(id) || 0) + 1) * 2;
+      if (station.tracks < desired) tracks.push({ station, desired });
+      if (station.length < cars) length.push({ station, desired: cars });
+    }
+    return { error: "", tracks, length, fleet };
+  }
 
-    const sameRoute = !config.remove && config.loop === line.loop && config.cars === line.cars &&
-      config.stops.length === line.stops.length && config.stops.every((id, index) => id === line.stops[index]);
-    const active = this.state.trains.filter((train) => train.line === line.id && !train.retiring);
-    if (sameRoute) {
-      line.count = config.count;
-      if (line.count > active.length) this.seedTrains(line, active.length);
-      for (const train of active.slice(line.count)) this.retire(train);
+  expand(station, length, tracks) {
+    if (!Number.isSafeInteger(length) || length < station.length ||
+        !Number.isSafeInteger(tracks) || tracks < station.tracks || tracks % 2 !== 0) return false;
+    const cost = (tracks - station.tracks) * 600 + (length - station.length) * tracks * 120;
+    Object.assign(station, { length, tracks });
+    MetroNetwork.post(this.state, "building", cost);
+    this.invalidate();
+    return true;
+  }
+
+  configure(line, config, fix = {}) {
+    if (line?.pending) return { error: "请等在途列车停靠后再调整这条线。" };
+    if (!config.remove) {
+      const checked = this.checkLayout(config, line);
+      if (checked.error) return { error: checked.error };
+      if (checked.tracks.length && !fix.tracks) return { error: "请先为沿线车站补足轨道。" };
+      if (checked.length.length && !["extend", "trim"].includes(fix.length)) return { error: "请选择延长站台或缩编。" };
+      config = { ...config, fleet: checked.fleet, name: (config.name || "").trim().slice(0, 22) };
+      if (!config.branch) config.fleet.branch = [];
+      if (fix.length === "trim") {
+        for (const route of MetroNetwork.routes(config)) {
+          const limit = this.platformLimit(route.stops);
+          config.fleet[route.id] = MetroNetwork.normalize(route.fleet.map((group) => ({
+            ...group, cars: Math.min(limit, group.cars),
+          })));
+        }
+      }
+      // Combine the changes at each station so extending and adding tracks charges once.
+      const changes = new Map(checked.tracks.map(({ station, desired }) => [station, { tracks: desired, length: station.length }]));
+      if (fix.length === "extend") {
+        for (const { station, desired } of checked.length) {
+          changes.set(station, { tracks: changes.get(station)?.tracks || station.tracks, length: desired });
+        }
+      }
+      for (const [station, next] of changes) this.expand(station, next.length, next.tracks);
+      this.bookConstruction(config, line);
+    }
+    if (!line) {
+      const id = this.state.nextLine++;
+      line = { id, ...config, pending: null, color: METRO_LINE_COLORS[(id - 1) % METRO_LINE_COLORS.length] };
+      this.state.lines.push(line);
+      this.lines.set(id, line);
+      this.syncFleet(line);
     } else {
-      line.pending = config;
-      for (const train of this.state.trains) if (train.line === line.id) this.retire(train);
+      const draining = MetroNetwork.routes(line).filter((old) => {
+        const next = config.remove ? null : MetroNetwork.route(config, old.id);
+        return !next || old.loop !== next.loop || old.stops.join(",") !== next.stops.join(",");
+      }).map((route) => route.id);
+      if (draining.length) {
+        line.pending = { config, draining };
+        for (const train of this.state.trains) {
+          if (train.line === line.id && draining.includes(train.service)) this.retire(train);
+        }
+      } else {
+        Object.assign(line, config);
+        this.syncFleet(line);
+      }
     }
     this.invalidate();
     this.finishChanges();
-    return true;
+    return { line };
+  }
+
+  bookConstruction(config, previous) {
+    for (const [key, [a, b]] of MetroNetwork.pairs(config)) {
+      if (this.state.rails[key]) continue;
+      this.state.rails[key] = true;
+      this.book("building", MetroWorld.trackLength(this.stations.get(a), this.stations.get(b)) * 5);
+    }
+    const vehicles = (line) => MetroNetwork.routes(line)
+      .reduce((sum, route) => sum + MetroNetwork.fleetTotal(route.fleet, true), 0);
+    this.book("building", Math.max(0, vehicles(config) - (previous ? vehicles(previous) : 0)) * METRO_NEW_CAR_COST);
+  }
+
+  book(entry, value) {
+    if (value) MetroNetwork.post(this.state, entry, value);
+  }
+
+  syncFleet(line) {
+    const all = this.state.trains.filter((train) => train.line === line.id && !train.retiring && !train.retired);
+    for (const route of MetroNetwork.routes(line)) {
+      const existing = all.filter((train) => train.service === route.id);
+      const used = new Set();
+      const count = MetroNetwork.fleetTotal(route.fleet);
+      let index = 0;
+      let additions = 0;
+      for (const group of route.fleet) {
+        for (let quantity = 0; quantity < group.count; quantity++, index++) {
+          let dir = route.loop && index % 2 ? -1 : 1;
+          const match = existing.find((train) => !used.has(train) && train.cars === group.cars && (!route.loop || train.dir === dir));
+          if (match) {
+            used.add(match);
+            continue;
+          }
+          let at = 0;
+          if (!existing.length) {
+            if (route.loop) at = Math.floor(index / count * route.stops.length);
+            else {
+              const end = route.stops.length - 1;
+              const step = Math.floor(index / count * 2 * end);
+              dir = step < end ? 1 : -1;
+              at = dir === 1 ? step : 2 * end - step;
+            }
+          }
+          this.state.trains.push({
+            id: this.state.nextTrain++, line: line.id, service: route.id, cars: group.cars,
+            at: route.stops[at], to: 0, dir, phase: "arrive",
+            ready: this.state.time + additions++ * 0.65,
+            passengers: [], load: 0, retiring: false, wait: "",
+          });
+        }
+      }
+      for (const train of existing) if (!used.has(train)) this.retire(train);
+    }
   }
 
   retire(train) {
@@ -133,6 +246,7 @@ class MetroSimulation {
 
   unloadAndRetire(train) {
     const station = this.stations.get(train.at);
+    this.releaseBay(station, train);
     for (const group of train.passengers) this.leaveTrain(station, group);
     train.passengers = [];
     train.load = 0;
@@ -143,24 +257,26 @@ class MetroSimulation {
     this.state.trains = this.state.trains.filter((train) => !train.retired);
     let changed = false;
     for (const line of this.state.lines) {
-      if (!line.pending || this.state.trains.some((train) => train.line === line.id)) continue;
-      const config = line.pending;
+      if (!line.pending) continue;
+      const { config, draining } = line.pending;
+      if (this.state.trains.some((train) => train.line === line.id && draining.includes(train.service))) continue;
       if (config.remove) {
         this.lines.delete(line.id);
       } else {
         Object.assign(line, config, { pending: null });
-        this.seedTrains(line);
+        this.syncFleet(line);
       }
       changed = true;
     }
     if (changed) {
+      this.state.trains = this.state.trains.filter((train) => !train.retired);
       this.state.lines = this.state.lines.filter((line) => this.lines.has(line.id));
       this.invalidate();
     }
   }
 
-  lineActive(line) {
-    return line.count > 0 && !line.pending;
+  routeActive(line, route) {
+    return route && route.fleet.length && !line.pending?.draining.includes(route.id);
   }
 
   getGraph() {
@@ -191,41 +307,39 @@ class MetroSimulation {
     }
 
     for (const line of this.state.lines) {
-      const active = this.lineActive(line);
-      for (const id of line.stops) {
-        services.get(id).drawn++;
-        if (active) services.get(id).active++;
-      }
-      if (!active) continue;
-      let trip = 0;
-      for (let i = 1; i < line.stops.length; i++) {
-        trip += MetroWorld.travelTime(this.stations.get(line.stops[i - 1]), this.stations.get(line.stops[i])) + 1;
-      }
-      if (line.loop) {
-        trip += MetroWorld.travelTime(this.stations.get(line.stops.at(-1)), this.stations.get(line.stops[0])) + 1;
-      }
-      const delayed = this.state.trains.filter((train) => train.line === line.id && train.wait).length;
-      const congestion = Math.min(5, delayed * 1.1);
-      for (const dir of [1, -1]) {
-        if (line.loop && line.count === 1 && dir === -1) continue;
-        const stops = dir === 1 ? line.stops : [...line.stops].reverse();
-        const rides = stops.map(addNode);
-        const fleet = line.loop ? (dir === 1 ? Math.ceil(line.count / 2) : Math.floor(line.count / 2)) : line.count;
-        const wait = (line.loop ? trip : 2 * trip + 3) / fleet / 2 + congestion;
-        for (let i = 0; i < stops.length; i++) {
-          const station = this.stations.get(stops[i]);
-          const platform = platforms.get(station.id);
-          connect(rides[i], platform, 0.65 + Math.min(2.4, station.waiting / 190), null, station.id);
-          if (i === stops.length - 1 && !line.loop) continue;
-          const next = (i + 1) % stops.length;
-          const nextStation = this.stations.get(stops[next]);
-          const platformPressure = Math.min(9, station.waiting / (line.cars * METRO_CAR_CAPACITY) * 2.05);
-          connect(platform, rides[i], Math.max(1.2, wait) + platformPressure, { line: line.id, dir });
-          connect(rides[i], rides[next], MetroWorld.travelTime(station, nextStation) + 1.1);
-          links.get(station.id).add(nextStation.id);
-          links.get(nextStation.id).add(station.id);
+      for (const id of MetroNetwork.stops(line)) services.get(id).drawn++;
+      const active = new Set();
+      for (const route of MetroNetwork.routes(line)) {
+        if (!this.routeActive(line, route)) continue;
+        for (const id of route.stops) active.add(id);
+        const count = MetroNetwork.fleetTotal(route.fleet);
+        const seats = MetroNetwork.fleetTotal(route.fleet, true) * METRO_CAR_CAPACITY / count;
+        const trip = MetroNetwork.segments(route).reduce((duration, [a, b]) =>
+          duration + MetroWorld.travelTime(this.stations.get(a), this.stations.get(b)) + 1.3, 0);
+        const delayed = this.state.trains.filter((train) => train.line === line.id && train.service === route.id && train.wait).length;
+        const congestion = Math.min(5, delayed * 1.15);
+        for (const dir of [1, -1]) {
+          const fleet = route.loop ? (dir === 1 ? Math.ceil(count / 2) : Math.floor(count / 2)) : count;
+          if (!fleet) continue;
+          const stops = dir === 1 ? route.stops : [...route.stops].reverse();
+          const rides = stops.map(addNode);
+          const wait = (route.loop ? trip : 2 * trip + 3) / fleet / 2 + congestion;
+          for (let i = 0; i < stops.length; i++) {
+            const station = this.stations.get(stops[i]);
+            const platform = platforms.get(station.id);
+            connect(rides[i], platform, 0.65 + Math.min(2.4, station.waiting / 190), null, station.id);
+            if (i === stops.length - 1 && !route.loop) continue;
+            const next = (i + 1) % stops.length;
+            const nextStation = this.stations.get(stops[next]);
+            const platformPressure = Math.min(9, station.waiting / seats * 2.05);
+            connect(platform, rides[i], Math.max(1.2, wait) + platformPressure, { line: line.id, service: route.id, dir });
+            connect(rides[i], rides[next], MetroWorld.travelTime(station, nextStation) + 1.3);
+            links.get(station.id).add(nextStation.id);
+            links.get(nextStation.id).add(station.id);
+          }
         }
       }
+      for (const id of active) services.get(id).active++;
     }
     const served = this.state.stations.filter((station) => services.get(station.id).active > 0);
     const components = new Map();
@@ -339,7 +453,7 @@ class MetroSimulation {
         return false;
       });
       station.missed *= 0.86;
-      const volume = this.rates.get(station.id) * 2;
+      const volume = this.rates.get(station.id) * METRO_DEMAND_INTERVAL;
       const count = Math.floor(volume + MetroWorld.random(this.state));
       const batches = Math.min(count, 3);
       for (let i = 0; i < batches; i++) {
@@ -357,75 +471,126 @@ class MetroSimulation {
   leaveTrain(station, group) {
     if (group.target === station.id) {
       this.state.stats.delivered += group.n;
+      this.book("income", group.n * METRO_FARE);
     } else if (group.plan?.goal === station.id) {
       this.state.stats.nearby += group.n;
+      this.book("income", group.n * METRO_FARE);
     } else {
       this.enqueue(station, group);
     }
   }
 
-  nextStop(line, train) {
-    const index = line.stops.indexOf(train.at);
-    if (line.loop) return line.stops[(index + train.dir + line.stops.length) % line.stops.length];
-    return line.stops[index + train.dir];
+  nextStop(route, train) {
+    const index = route.stops.indexOf(train.at);
+    if (route.loop) return route.stops[(index + train.dir + route.stops.length) % route.stops.length];
+    return route.stops[index + train.dir];
   }
 
-  stop(train, line) {
+  canBoard(group, train, route) {
+    if (group.until <= this.state.time || group.plan?.line !== train.line || group.plan.dir !== train.dir) return false;
+    // Either service can carry passengers along the common trunk in the same direction.
+    const start = route.stops.indexOf(train.at);
+    const end = route.stops.indexOf(group.plan.exit);
+    return end >= 0 && end !== start && (route.loop || (end - start) * train.dir > 0);
+  }
+
+  releaseBay(station, train) {
+    if (train.bay && station.platforms[train.bay] === train.id) delete station.platforms[train.bay];
+    delete train.bay;
+  }
+
+  stop(train, route) {
     const station = this.stations.get(train.at);
-    const bays = ["rail", "airport", "bus"].includes(station.type) ? 3 : 2;
-    if (!station.platforms.length) station.platforms = Array(bays).fill(0);
-    let bay = 0;
-    for (let index = 1; index < bays; index++) if (station.platforms[index] < station.platforms[bay]) bay = index;
-    if (station.platforms[bay] > this.state.time) {
+    const turning = !this.nextStop(route, train);
+    const direction = turning ? -train.dir : train.dir;
+    const bay = train.line + ":" + direction;
+    if (station.platforms[bay] && station.platforms[bay] !== train.id) {
       train.wait = "站台";
       return;
     }
 
-    let flow = 0;
+    train.dir = direction;
+    train.bay = bay;
+    station.platforms[bay] = train.id;
+    let leaving = 0;
+    for (const group of train.passengers) if (group.plan.exit === station.id) leaving += group.n;
+    const graph = this.getGraph();
+    let waiting = 0;
+    for (const group of station.queue) {
+      this.refreshGroup(station, group, graph);
+      if (this.canBoard(group, train, route)) waiting += group.n;
+    }
+    const seats = train.cars * METRO_CAR_CAPACITY;
+    const boarding = Math.min(waiting, seats - train.load + leaving);
+    const flow = train.cars * 8.5;
+    train.doors = {
+      boarding, credit: 0,
+      close: this.state.time + 0.85 + (leaving + boarding) / flow + Math.min(1.35, station.waiting / 205),
+      turn: turning ? 1.25 : 0,
+    };
+    train.phase = "doors";
+    train.wait = "";
+  }
+
+  exchangePassengers(train, route) {
+    const station = this.stations.get(train.at);
+    const doors = train.doors;
+    doors.credit += train.cars * 8.5 * METRO_STEP;
+    let budget = Math.floor(doors.credit);
+    let stillLeaving = false;
     train.passengers = train.passengers.filter((group) => {
       if (group.plan.exit !== station.id) return true;
-      this.leaveTrain(station, group);
-      flow += group.n;
-      train.load -= group.n;
-      return false;
-    });
-    let terminalDelay = 0;
-    if (!this.nextStop(line, train)) {
-      train.dir *= -1;
-      terminalDelay = 1.25;
-    }
-
-    const graph = this.getGraph();
-    const capacity = line.cars * METRO_CAR_CAPACITY;
-    const waiting = station.queue.filter((group) => {
-      if (this.state.time >= group.until) return true;
-      this.refreshGroup(station, group, graph);
-      if (group.plan?.line !== line.id || group.plan.dir !== train.dir) return true;
-      const board = Math.min(group.n, capacity - train.load);
-      if (board < group.n) station.missed += group.n - board;
-      if (!board) return true;
-      const wait = this.state.time - group.queued;
-      this.state.stats.wait += wait * board;
-      this.state.stats.boarded += board;
-      train.passengers.push({ ...group, n: board });
-      group.n -= board;
-      train.load += board;
-      station.waiting -= board;
-      flow += board;
+      const off = Math.min(budget, group.n);
+      if (off) {
+        this.leaveTrain(station, { ...group, n: off });
+        group.n -= off;
+        train.load -= off;
+        budget -= off;
+        doors.credit -= off;
+      }
+      if (group.n) stillLeaving = true;
       return group.n > 0;
     });
-    station.queue = waiting;
-    const dwell = 0.78 + flow / (line.cars * 19) + terminalDelay + Math.min(1.4, station.waiting / 215);
+    const graph = this.getGraph();
+    const capacity = train.cars * METRO_CAR_CAPACITY;
+    if (!stillLeaving && budget && doors.boarding && train.load < capacity) {
+      station.queue = station.queue.filter((group) => {
+        this.refreshGroup(station, group, graph);
+        if (!this.canBoard(group, train, route)) return true;
+        const board = Math.min(group.n, capacity - train.load, doors.boarding, budget);
+        if (!board) return true;
+        this.state.stats.wait += (this.state.time - group.queued) * board;
+        this.state.stats.boarded += board;
+        train.passengers.push({ ...group, n: board });
+        group.n -= board;
+        train.load += board;
+        station.waiting -= board;
+        budget -= board;
+        doors.credit -= board;
+        doors.boarding -= board;
+        return group.n > 0;
+      });
+    }
+    // Keep only the fractional boarding rate between simulation steps.
+    doors.credit %= 1;
+    if (this.state.time < doors.close || stillLeaving) return;
+    if (train.load >= capacity) {
+      for (const group of station.queue) {
+        if (this.canBoard(group, train, route)) station.missed += group.n;
+      }
+    }
     train.phase = "stop";
-    train.ready = this.state.time + dwell;
-    train.wait = "";
-    station.platforms[bay] = train.ready;
+    train.ready = this.state.time + doors.turn;
+    delete train.doors;
   }
 
   advanceTrain(train) {
     const time = this.state.time;
     const line = this.lines.get(train.line);
     if (train.to) {
+      const elapsed = Math.min(time, train.arrives) - Math.max(time - METRO_STEP, train.departed);
+      const length = MetroWorld.trackLength(this.stations.get(train.at), this.stations.get(train.to));
+      this.book("running", Math.max(0, elapsed) / (train.arrives - train.departed) * length / 100 * train.cars * METRO_CAR_KM_COST);
       if (time < train.arrives) return;
       train.at = train.to;
       train.to = 0;
@@ -436,11 +601,16 @@ class MetroSimulation {
       return;
     }
     if (time < train.ready) return;
+    const route = MetroNetwork.route(line, train.service);
     if (train.phase === "arrive") {
-      this.stop(train, line);
+      this.stop(train, route);
       return;
     }
-    const next = this.nextStop(line, train);
+    if (train.phase === "doors") {
+      this.exchangePassengers(train, route);
+      return;
+    }
+    const next = this.nextStop(route, train);
     const key = train.at + ">" + next;
     if ((this.state.tracks[key] || 0) > time) {
       train.wait = "区间";
@@ -448,6 +618,7 @@ class MetroSimulation {
     }
     const ride = MetroWorld.travelTime(this.stations.get(train.at), this.stations.get(next));
     this.state.tracks[key] = time + Math.max(1.65, ride * 0.62);
+    this.releaseBay(this.stations.get(train.at), train);
     train.to = next;
     train.departed = time;
     train.arrives = time + ride;
@@ -456,8 +627,9 @@ class MetroSimulation {
 
   step() {
     this.state.time += METRO_STEP;
+    MetroNetwork.currentDay(this.state);
     if (this.state.time >= this.state.nextDemand) {
-      this.state.nextDemand += 2;
+      this.state.nextDemand += METRO_DEMAND_INTERVAL;
       this.demand();
     }
     for (const train of this.state.trains) if (!train.retired) this.advanceTrain(train);

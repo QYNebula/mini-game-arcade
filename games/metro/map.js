@@ -276,21 +276,24 @@ class MetroMap {
     const ctx = this.context;
     const shared = new Map();
     for (const line of state.lines) {
-      const stops = line.loop ? [...line.stops, line.stops[0]] : line.stops;
-      for (let i = 1; i < stops.length; i++) {
-        const a = this.sim.stations.get(stops[i - 1]);
-        const b = this.sim.stations.get(stops[i]);
+      const operating = new Set();
+      for (const route of MetroNetwork.routes(line)) {
+        if (!this.sim.routeActive(line, route)) continue;
+        for (const [a, b] of MetroNetwork.segments(route)) operating.add(Math.min(a, b) + ":" + Math.max(a, b));
+      }
+      for (const [key, [start, end]] of MetroNetwork.pairs(line)) {
+        const a = this.sim.stations.get(start);
+        const b = this.sim.stations.get(end);
         const first = a.id < b.id ? a : b;
         const last = first === a ? b : a;
-        const key = first.id + ":" + last.id;
         if (!shared.has(key)) shared.set(key, []);
-        shared.get(key).push({ first, last, line });
+        shared.get(key).push({ first, last, line, active: operating.has(key) });
       }
     }
     this.segments = [];
     for (const lanes of shared.values()) {
       for (const [index, lane] of lanes.entries()) {
-        const { first, last, line } = lane;
+        const { first, last, line, active } = lane;
         const angle = Math.atan2(last.y - first.y, last.x - first.x);
         const offset = Math.max(-13, Math.min(13, (index - (lanes.length - 1) / 2) * 4.3));
         const points = MetroWorld.track(first, last).map((point) => {
@@ -303,8 +306,8 @@ class MetroMap {
         ctx.stroke();
         ctx.strokeStyle = line.color;
         ctx.lineWidth = line.id === selected ? 6.5 : 4.5;
-        ctx.globalAlpha = line.pending ? 0.48 : line.count ? 1 : 0.66;
-        if (!line.count || line.pending) ctx.setLineDash([6, 5]);
+        ctx.globalAlpha = active ? 1 : 0.66;
+        if (!active) ctx.setLineDash([6, 5]);
         ctx.stroke();
         ctx.setLineDash([]);
         ctx.globalAlpha = 1;
@@ -320,7 +323,10 @@ class MetroMap {
         const points = MetroWorld.track(this.sim.stations.get(stops[i - 1]), this.sim.stations.get(stops[i]));
         for (const point of points.slice(1)) path.push(this.screen(point));
       }
-      if (this.cursor && !draft.loop) path.push(this.cursor);
+      if (this.cursor && !draft.loop) {
+        if (draft.leading) path.unshift(this.cursor);
+        else path.push(this.cursor);
+      }
       if (path.length > 1) {
         this.path(path);
         ctx.strokeStyle = "#fdf8ed";
@@ -366,7 +372,7 @@ class MetroMap {
       ctx.save();
       ctx.translate(position.x, position.y);
       ctx.rotate(angle);
-      const width = Math.min(27, 12 + line.cars * 1.8);
+      const width = Math.min(41, 12 + train.cars * 1.8);
       ctx.fillStyle = "#fffdf6";
       ctx.beginPath();
       ctx.roundRect(-width / 2, -5, width, 10, 3);
@@ -375,7 +381,7 @@ class MetroMap {
       ctx.lineWidth = 2;
       ctx.stroke();
       ctx.fillStyle = train.wait ? "#ce6848" : line.color;
-      const load = train.load / (line.cars * METRO_CAR_CAPACITY);
+      const load = train.load / (train.cars * METRO_CAR_CAPACITY);
       ctx.fillRect(-width / 2 + 3, -1.5, (width - 6) * Math.max(0.13, load), 3);
       ctx.restore();
     }
@@ -435,7 +441,7 @@ class MetroMap {
     const state = this.sim.state;
     const key = [time, this.sim.revision, state.areas.length, state.proposal?.id, state.labels,
       this.width, this.height, this.view.x, this.view.y, this.view.zoom, selection.line, selection.station,
-      selection.proposal, selection.draft?.loop, selection.draft?.stops.join(","), this.cursor?.x, this.cursor?.y].join("/");
+      selection.proposal, selection.draft?.loop, selection.draft?.leading, selection.draft?.stops.join(","), this.cursor?.x, this.cursor?.y].join("/");
     if (this.lastDraw === key) return;
     this.lastDraw = key;
     const ctx = this.context;

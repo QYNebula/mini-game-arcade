@@ -1,6 +1,6 @@
 (() => {
   const id = "metro";
-  const version = 1;
+  const version = 2;
   const query = new URLSearchParams(window.location.search);
   const byId = (name) => document.getElementById(name);
   const text = (name, value) => { byId(name).textContent = value; };
@@ -8,13 +8,12 @@
   const shell = byId("game-shell");
   const cityDialog = byId("city-dialog");
   const removeDialog = byId("remove-dialog");
-  const trainInput = byId("train-count");
-  const carInput = byId("car-count");
+  const fleetEditor = byId("fleet-editor");
+  const platformInput = byId("platform-length");
   const speedButtons = [...document.querySelectorAll("[data-speed]")];
   const tabs = [...document.querySelectorAll("[data-tab]")];
   const numbers = new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 0 });
   const fmt = (value) => numbers.format(value);
-  trainInput.max = String(METRO_MAX_TRAINS);
 
   let sim;
   let speed = 1;
@@ -22,6 +21,7 @@
   let lineId = 0;
   let draft = null;
   let removing = 0;
+  let removingBranch = false;
   let bottleneck = 0;
   let lastFrame = 0;
   let accumulator = 0;
@@ -31,6 +31,7 @@
   let lineKey = "";
   let editorKey = "";
   let districtKey = "";
+  let facilityKey = "";
 
   const map = new MetroMap(canvas, {
     begin: beginTrace,
@@ -39,7 +40,7 @@
     selectLine,
   });
 
-  function validCity(state) {
+  function validCity(state, schema) {
     if (!state || typeof state.name !== "string" || !Number.isFinite(state.time) ||
         ![0, 1, 2, 4].includes(state.speed) || !Number.isInteger(state.random) ||
         !state.stats || !state.tracks || !Array.isArray(state.areas) || !state.areas.length ||
@@ -47,10 +48,14 @@
     const stations = new Set(state.stations.map((station) => station?.id));
     const lines = new Set(state.lines.map((line) => line?.id));
     return stations.size > 1 && stations.size === state.stations.length && lines.size === state.lines.length &&
-      state.stations.every((station) => station && MetroWorld.types[station.type] && Array.isArray(station.queue) && Array.isArray(station.platforms)) &&
+      state.stations.every((station) => station && MetroWorld.types[station.type] && Array.isArray(station.queue) &&
+        (schema === 1 ? Array.isArray(station.platforms) : Number.isSafeInteger(station.length) &&
+          Number.isSafeInteger(station.tracks) && station.platforms)) &&
       state.areas.every((area) => area && MetroWorld.areas[area.kind] && Array.isArray(area.plan)) &&
-      state.lines.every((line) => line && Array.isArray(line.stops) && line.stops.length >= 2 && line.stops.every((stop) => stations.has(stop))) &&
-      state.trains.every((train) => train && lines.has(train.line) && stations.has(train.at) && (!train.to || stations.has(train.to)) && Array.isArray(train.passengers));
+      state.lines.every((line) => line && Array.isArray(line.stops) && line.stops.length >= 2 && line.stops.every((stop) => stations.has(stop)) &&
+        (schema === 1 || Array.isArray(line.fleet?.main) && Array.isArray(line.fleet?.branch))) &&
+      state.trains.every((train) => train && lines.has(train.line) && stations.has(train.at) && (!train.to || stations.has(train.to)) &&
+        Array.isArray(train.passengers) && (schema === 1 || Number.isSafeInteger(train.cars) && MetroNetwork.keys.includes(train.service)));
   }
 
   function save() {
@@ -118,29 +123,37 @@
     update();
   }
 
-  function beginDraft(line = null) {
+  function beginDraft(line = null, service = "main") {
     if (draft || line?.pending) return;
+    const branch = service === "branch" ? line.branch : null;
     draft = {
       line: line?.id || 0,
-      stops: line ? [...line.stops] : [],
-      loop: line?.loop || false,
+      service,
+      stops: service === "main" ? [...(line?.stops || [])] : branch ? [branch.fork, ...branch.tail] : [],
+      loop: service === "main" && Boolean(line?.loop),
+      leading: false,
       color: line?.color || METRO_LINE_COLORS[(sim.state.nextLine - 1) % METRO_LINE_COLORS.length],
     };
+    byId("draft-expand-tracks").checked = false;
+    byId("draft-length-choice").value = "";
     accumulator = 0;
     update();
-    revealPanel("draft-actions");
+    revealPanel("metro-map");
   }
 
   function beginTrace(value) {
     if (!draft || draft.loop) return false;
+    draft.leading = false;
     if (!draft.stops.length) {
+      const line = sim.lines.get(draft.line);
+      if (draft.service === "branch" && !line.stops.slice(0, -1).includes(value)) return false;
       draft.stops.push(value);
       drawDraft();
       return true;
     }
     if (value === draft.stops.at(-1)) return true;
-    if (value === draft.stops[0]) {
-      draft.stops.reverse();
+    if (value === draft.stops[0] && draft.service === "main") {
+      draft.leading = true;
       drawDraft();
       return true;
     }
@@ -148,31 +161,64 @@
   }
 
   function traceStop(value) {
-    if (!draft || draft.loop || draft.stops.at(-1) === value) return;
-    if (value === draft.stops[0] && draft.stops.length >= 3) {
+    if (!draft || draft.loop) return;
+    const end = draft.leading ? 0 : -1;
+    if (draft.stops.at(end) === value) return;
+    const line = sim.lines.get(draft.line);
+    const otherEnd = draft.leading ? -1 : 0;
+    if (draft.service === "branch" && line.stops.includes(value)) return;
+    if (draft.service === "main" && value === draft.stops.at(otherEnd) && draft.stops.length >= 3) {
       draft.loop = true;
     } else if (!draft.stops.includes(value)) {
-      draft.stops.push(value);
+      if (draft.leading) draft.stops.unshift(value);
+      else draft.stops.push(value);
     } else {
       return;
     }
     drawDraft();
   }
 
+  function draftConfig() {
+    const line = sim.lines.get(draft.line);
+    if (draft.service === "branch") {
+      return {
+        name: line.name, stops: line.stops, loop: false,
+        branch: { fork: draft.stops[0], tail: draft.stops.slice(1) },
+        fleet: { main: line.fleet.main, branch: line.branch ? line.fleet.branch : [{ cars: 4, count: 1 }] },
+      };
+    }
+    return {
+      name: line?.name || "", stops: draft.stops, loop: draft.loop, branch: line?.branch || null,
+      fleet: line?.fleet || { main: [{ cars: 4, count: 2 }], branch: [] },
+    };
+  }
+
   function drawDraft() {
     if (!draft) return;
     const line = sim.lines.get(draft.line);
-    const valid = !sim.validate(draft.stops, draft.loop);
-    const limit = valid ? sim.platformLimit(draft.stops) : 0;
-    text("draft-title", line ? "改线 · " + line.id + " 号线" : "新建线路");
-    let summary = line ? "从端点延长，或重画线路。" : "从起点站拖过要停靠的站。";
+    const branch = draft.service === "branch";
+    const ready = draft.stops.length >= (draft.loop ? 3 : 2);
+    const checked = ready ? sim.checkLayout(draftConfig(), line) : null;
+    const tracks = checked?.tracks || [];
+    const length = checked?.length || [];
+    text("draft-title", branch ? (line.branch ? "改支线" : "添加支线") + " · " + MetroNetwork.name(line) :
+      line ? "改线 · " + MetroNetwork.name(line) : "新建线路");
+    let summary = branch ? "从主线上的分岔站，拖到支线要停靠的车站。" :
+      line ? "从端点延长，或重画线路。" : "从起点站拖过要停靠的站。";
     if (draft.stops.length) {
-      summary = draft.stops.length + " 站 · " + (draft.loop ? "环线" : "往返线");
-      if (!draft.loop && draft.stops.length >= 3) summary += " · 拖回起点可闭环";
-      if (line && valid && limit < line.cars) summary += " · 确认后缩为 " + limit + " 编";
+      summary = branch ? "分岔站 " + sim.stations.get(draft.stops[0]).name + " · 新接 " + (draft.stops.length - 1) + " 站" :
+        draft.stops.length + " 站 · " + (draft.loop ? "环线" : "往返线");
+      if (!branch && !draft.loop && draft.stops.length >= 3) summary += " · 拖回起点可闭环";
     }
-    text("draft-summary", summary);
-    byId("confirm-draft").disabled = !valid;
+    text("draft-summary", checked?.error || summary);
+    byId("draft-facilities").hidden = !tracks.length && !length.length;
+    byId("draft-tracks").hidden = !tracks.length;
+    byId("draft-length").hidden = !length.length;
+    text("draft-track-note", tracks.map(({ station, desired }) => station.name + " 缺 " + (desired - station.tracks) + " 轨").join("、"));
+    text("draft-length-note", length.map(({ station, desired }) => station.name + " 需 " + desired + " 节").join("、"));
+    byId("confirm-draft").disabled = !ready || Boolean(checked?.error) ||
+      Boolean(tracks.length && !byId("draft-expand-tracks").checked) ||
+      Boolean(length.length && !byId("draft-length-choice").value);
     byId("undo-stop").disabled = !draft.stops.length;
     byId("reset-draft").disabled = !draft.stops.length;
   }
@@ -180,21 +226,22 @@
   function finishDraft(confirmed) {
     if (!draft) return;
     if (confirmed) {
-      const { stops, loop, line: existing } = draft;
-      if (sim.validate(stops, loop)) return;
-      if (existing) {
-        const line = sim.lines.get(existing);
-        const applied = sim.changeLine(line, {
-          stops, loop, cars: Math.min(line.cars, sim.platformLimit(stops)), count: line.count,
-        });
-        if (!applied) return;
-        selectLine(existing);
-        announce(line.pending ? "列车将先在下一站清客，再切换线路。" : "线路已更新。");
-      } else {
-        const line = sim.addLine(stops, loop);
-        selectLine(line.id);
-        announce(line.id + " 号线已建成，配有 " + line.count + " 列 " + line.cars + " 编组列车。");
+      if (byId("confirm-draft").disabled) return;
+      const old = sim.lines.get(draft.line);
+      const result = sim.configure(old, draftConfig(), {
+        tracks: byId("draft-expand-tracks").checked, length: byId("draft-length-choice").value,
+      });
+      if (result.error) {
+        text("draft-summary", result.error);
+        return;
       }
+      const line = result.line;
+      const name = MetroNetwork.name(line, draft.service);
+      const message = line.pending ? "受影响的列车将在下一站清客，再切换走向。" :
+        old && draft.service === "main" ? name + "已更新。" : name + "已接入。";
+      draft = null;
+      selectLine(line.id);
+      announce(message);
     }
     draft = null;
     accumulator = 0;
@@ -204,13 +251,13 @@
 
   function describeDirection(station, group) {
     const line = sim.lines.get(group.plan.line);
-    if (!line || !sim.lineActive(line)) return "";
-    const index = line.stops.indexOf(station.id);
-    const next = line.loop
-      ? line.stops[(index + group.plan.dir + line.stops.length) % line.stops.length]
-      : line.stops[index + group.plan.dir];
-    const terminal = sim.stations.get(line.loop ? next : group.plan.dir > 0 ? line.stops.at(-1) : line.stops[0]);
-    return terminal ? line.id + " 号线往 " + terminal.name : "";
+    if (!line) return "";
+    const route = MetroNetwork.route(line, group.plan.service || "main");
+    if (!sim.routeActive(line, route)) return "";
+    const index = route.stops.indexOf(station.id);
+    const next = route.stops[(index + group.plan.dir + route.stops.length) % route.stops.length];
+    const terminal = sim.stations.get(route.loop ? next : group.plan.dir > 0 ? route.stops.at(-1) : route.stops[0]);
+    return terminal ? MetroNetwork.name(line, route.id) + "往 " + terminal.name : "";
   }
 
   function updateOperations(graph) {
@@ -236,7 +283,15 @@
     const service = graph.services.get(station.id);
     text("station-name", station.name);
     text("station-state", service.active ? (service.active > 1 ? "换乘站" : "已运营") : service.drawn ? "待发车" : "待接入");
-    text("station-kind", MetroWorld.types[station.type].label + " · 最长 " + MetroWorld.types[station.type].platform + " 节");
+    text("station-kind", MetroWorld.types[station.type].label + " · 最长 " + station.length + " 节");
+    const occupancy = sim.reservations().get(station.id) || 0;
+    text("station-tracks", station.tracks + " 条轨道 · " + occupancy + " / " + station.tracks / 2 + " 条线路已用");
+    const facility = station.id + ":" + station.length;
+    if (facility !== facilityKey) {
+      facilityKey = facility;
+      platformInput.min = String(station.length + 1);
+      platformInput.value = String(station.length + 2);
+    }
     text("station-waiting", fmt(station.waiting) + " 人");
     text("station-demand", fmt((sim.rates.get(station.id) || 0) * 60) + " 人/时");
     const age = station.queue.reduce((sum, group) => sum + (state.time - group.queued) * group.n, 0);
@@ -263,17 +318,72 @@
     text("station-missed", station.missed >= 1 ? "近期满车未上 · " + fmt(station.missed) + " 人次" : "");
   }
 
+  function addFleetRow(section, cars, count) {
+    const row = document.createElement("div");
+    row.className = "fleet-row";
+    for (const [field, caption, value, min] of [
+      ["cars", "每列车厢", cars, 1], ["count", "列车数量", count, 0],
+    ]) {
+      const label = document.createElement("label");
+      const input = document.createElement("input");
+      label.textContent = caption;
+      input.type = "number";
+      input.inputMode = "numeric";
+      input.dataset.field = field;
+      input.value = String(value);
+      input.min = String(min);
+      input.step = "1";
+      input.max = field === "cars" ? section.dataset.limit : String(METRO_MAX_TRAINS);
+      input.required = true;
+      label.append(input);
+      row.append(label);
+    }
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "button button-secondary";
+    remove.textContent = "−";
+    remove.setAttribute("aria-label", "移除这组列车");
+    remove.addEventListener("click", () => row.remove());
+    row.append(remove);
+    section.insertBefore(row, section.querySelector(".add-fleet"));
+  }
+
+  function renderFleet(line) {
+    byId("line-title").value = line.name;
+    byId("line-title").placeholder = line.id + " 号线";
+    byId("line-error").hidden = true;
+    fleetEditor.replaceChildren(...MetroNetwork.routes(line).map((route) => {
+      const section = document.createElement("section");
+      section.className = "fleet-section";
+      section.dataset.service = route.id;
+      section.dataset.limit = String(sim.platformLimit(route.stops));
+      const title = document.createElement("h3");
+      title.textContent = route.loop ? "环线编组" : MetroNetwork.name(line, route.id) + " · 往 " + sim.stations.get(route.stops.at(-1)).name;
+      const summary = document.createElement("p");
+      summary.className = "muted fleet-limit";
+      const add = document.createElement("button");
+      add.type = "button";
+      add.className = "button button-plain add-fleet";
+      add.textContent = "＋ 添加编组";
+      add.addEventListener("click", () => addFleetRow(section, Math.min(4, Number(section.dataset.limit)), 1));
+      section.append(title, summary, add);
+      const groups = route.fleet.length ? route.fleet : [{ cars: Math.min(4, Number(section.dataset.limit)), count: 0 }];
+      for (const group of groups) addFleetRow(section, group.cars, group.count);
+      return section;
+    }));
+  }
+
   function updateLines() {
     const lines = sim.state.lines;
     if (!sim.lines.has(lineId)) lineId = lines[0]?.id || 0;
-    const key = lines.map((line) => line.id).join(",") + ":" + lineId;
+    const key = JSON.stringify([lineId, lines.map(({ id, name }) => [id, name])]);
     if (key !== lineKey) {
       lineKey = key;
       byId("line-list").replaceChildren(...lines.map((line) => {
         const button = document.createElement("button");
         button.type = "button";
         button.style.setProperty("--line-color", line.color);
-        button.textContent = line.id + " 号线";
+        button.textContent = MetroNetwork.name(line);
         button.setAttribute("aria-pressed", String(line.id === lineId));
         button.addEventListener("click", () => selectLine(line.id));
         return button;
@@ -284,28 +394,39 @@
     byId("line-info").hidden = !line;
     byId("lines-empty").hidden = Boolean(line);
     if (!line) return;
-    const limit = sim.platformLimit(line.stops);
     const activeTrains = sim.state.trains.filter((train) => train.line === line.id);
     const delayed = activeTrains.filter((train) => train.wait).length;
-    const full = activeTrains.filter((train) => train.load >= line.cars * METRO_CAR_CAPACITY).length;
-    text("line-name", line.id + " 号线");
-    text("line-operation", line.pending ? "调整中" : line.loop ? "环线" : "往返线");
-    text("line-stops", line.stops.map((id) => sim.stations.get(id).name).join(" → ") + (line.loop ? " ↺" : ""));
+    const full = activeTrains.filter((train) => train.load >= train.cars * METRO_CAR_CAPACITY).length;
+    text("line-name", MetroNetwork.name(line));
+    text("line-operation", line.pending ? "调整中" : line.loop ? "环线" : line.branch ? "带直通支线" : "往返线");
+    text("line-stops", MetroNetwork.routes(line).map((route) => {
+      const path = route.stops.map((id) => sim.stations.get(id).name).join(" → ");
+      return route.id === "branch" ? MetroNetwork.name(line, "branch") + " · " + path : path + (route.loop ? " ↺" : "");
+    }).join("\n"));
     const traffic = activeTrains.length
       ? activeTrains.length + " 列在网 · " + full + " 列满载 · " + delayed + " 列等区间或站台"
       : "待发车";
     text("line-traffic", traffic);
-    text("line-limit", "沿线站台最多 " + limit + " 节 · 每节载客 " + METRO_CAR_CAPACITY + " 人");
-    carInput.max = String(limit);
-    const config = [line.id, line.count, line.cars, limit, Boolean(line.pending)].join(":");
+    const config = JSON.stringify([line.id, line.name, line.stops, line.branch, line.loop, line.fleet, Boolean(line.pending)]);
     if (config !== editorKey) {
       editorKey = config;
-      trainInput.value = String(line.count);
-      carInput.value = String(line.cars);
+      renderFleet(line);
     }
-    for (const element of [trainInput, carInput, byId("apply-line"), byId("remove-line"), byId("edit-line")]) {
+    for (const section of fleetEditor.querySelectorAll("[data-service]")) {
+      const route = MetroNetwork.route(line, section.dataset.service);
+      const limit = sim.platformLimit(route.stops);
+      section.dataset.limit = String(limit);
+      section.querySelector(".fleet-limit").textContent = "沿途最多 " + limit + " 节 · 每节载客 " + METRO_CAR_CAPACITY + " 人";
+      for (const input of section.querySelectorAll('[data-field="cars"]')) input.max = String(limit);
+    }
+    const controls = byId("line-form").querySelectorAll("input, button");
+    for (const element of controls) {
       element.disabled = Boolean(line.pending || draft);
     }
+    text("edit-branch", line.branch ? "改支线" : "添加支线");
+    byId("edit-branch").disabled = Boolean(line.loop || line.pending || draft);
+    byId("edit-branch").title = line.loop ? "往返线路可以添加支线" : "";
+    byId("remove-branch").hidden = !line.branch;
   }
 
   function updateDistricts() {
@@ -334,6 +455,22 @@
     }));
   }
 
+  function updateFinance() {
+    const ledger = sim.state.finance;
+    const day = ledger.today;
+    const total = ledger.income - ledger.running;
+    const amounts = {
+      "income-today": day.income, "running-today": day.running, "profit-today": day.income - day.running,
+      "profit-total": total, "building-total": ledger.building, "balance-total": total - ledger.building,
+    };
+    text("finance-day", MetroWorld.dayLabel(sim.state.time));
+    for (const [id, value] of Object.entries(amounts)) {
+      text(id, (value < 0 ? "−" : "") + "¥" + fmt(Math.abs(value)));
+      byId(id).classList.toggle("negative", value < 0);
+    }
+    text("finance-rule", "固定票价 ¥" + METRO_FARE + " / 趟。运行费按每列车的实际编组和行驶里程计入。");
+  }
+
   function update() {
     const { state } = sim;
     text("day-label", MetroWorld.dayLabel(state.time));
@@ -355,6 +492,7 @@
     updateOperations(graph);
     updateLines();
     updateDistricts();
+    updateFinance();
   }
 
   function playback(rate) {
@@ -372,7 +510,7 @@
     const state = sim.state;
     const playing = state.speed && !draft && !removeDialog.open && !document.hidden;
     if (playing) {
-      accumulator += elapsed * 5.2 * state.speed;
+      accumulator += elapsed * METRO_MINUTES_PER_SECOND * state.speed;
       const before = state.stations.length;
       while (accumulator >= METRO_STEP) {
         sim.step();
@@ -395,16 +533,21 @@
   byId("play-toggle").addEventListener("click", () => playback(sim.state.speed ? 0 : speed));
   byId("build-line").addEventListener("click", () => beginDraft());
   byId("edit-line").addEventListener("click", () => beginDraft(sim.lines.get(lineId)));
+  byId("edit-branch").addEventListener("click", () => beginDraft(sim.lines.get(lineId), "branch"));
   byId("confirm-draft").addEventListener("click", () => finishDraft(true));
   byId("cancel-draft").addEventListener("click", () => finishDraft(false));
+  byId("draft-expand-tracks").addEventListener("change", drawDraft);
+  byId("draft-length-choice").addEventListener("change", drawDraft);
   byId("undo-stop").addEventListener("click", () => {
     if (draft.loop) draft.loop = false;
+    else if (draft.leading) draft.stops.shift();
     else draft.stops.pop();
     drawDraft();
   });
   byId("reset-draft").addEventListener("click", () => {
     draft.stops = [];
     draft.loop = false;
+    draft.leading = false;
     drawDraft();
   });
   byId("station-labels").addEventListener("click", () => {
@@ -436,27 +579,64 @@
     announce(area.name + " 已开放，车站会随开发逐个出现。");
     revealPanel("metro-map");
   });
+  byId("platform-form").addEventListener("submit", (event) => {
+    event.preventDefault();
+    const station = sim.stations.get(stationId);
+    if (!sim.expand(station, platformInput.valueAsNumber, station.tracks)) return;
+    update();
+    save();
+    announce(station.name + "现在可停靠 " + station.length + " 节编组。");
+  });
+  byId("expand-tracks").addEventListener("click", () => {
+    const station = sim.stations.get(stationId);
+    if (!sim.expand(station, station.length, station.tracks + 2)) return;
+    update();
+    save();
+    announce(station.name + "增加了 2 条轨道。");
+  });
   byId("line-form").addEventListener("submit", (event) => {
     event.preventDefault();
     const line = sim.lines.get(lineId);
     if (!line || draft) return;
-    if (!sim.changeLine(line, { stops: line.stops, loop: line.loop, cars: carInput.valueAsNumber, count: trainInput.valueAsNumber })) return;
+    const fleet = { main: [], branch: [] };
+    for (const section of fleetEditor.querySelectorAll("[data-service]")) {
+      fleet[section.dataset.service] = [...section.querySelectorAll(".fleet-row")].map((row) => ({
+        cars: row.querySelector('[data-field="cars"]').valueAsNumber,
+        count: row.querySelector('[data-field="count"]').valueAsNumber,
+      }));
+    }
+    const result = sim.configure(line, {
+      name: byId("line-title").value, stops: line.stops, loop: line.loop, branch: line.branch, fleet,
+    });
+    if (result.error) {
+      text("line-error", result.error);
+      byId("line-error").hidden = false;
+      return;
+    }
+    byId("line-error").hidden = true;
     update();
     save();
-    announce(line.pending ? "编组将在车辆停靠后统一切换。" : "调度已应用。");
+    announce("调度已应用，在途撤下的列车会先前往下一站。");
   });
-  byId("remove-line").addEventListener("click", () => {
+  function requestRemoval(branch) {
     removing = lineId;
+    removingBranch = branch;
     removeDialog.returnValue = "";
+    text("remove-title", branch ? "撤下这条支线？" : "撤下这条线路？");
     removeDialog.showModal();
-  });
+  }
+  byId("remove-line").addEventListener("click", () => requestRemoval(false));
+  byId("remove-branch").addEventListener("click", () => requestRemoval(true));
   removeDialog.addEventListener("close", () => {
     const line = sim.lines.get(removing);
-    if (removeDialog.returnValue === "remove" && line && sim.changeLine(line, { remove: true })) {
-      update();
-      save();
-      announce(line.pending ? "撤线处理中，在途列车会先停靠下一站。" : "线路已撤下。");
-    }
+    if (removeDialog.returnValue !== "remove" || !line) return;
+    const result = sim.configure(line, removingBranch
+      ? { name: line.name, stops: line.stops, loop: line.loop, branch: null, fleet: { main: line.fleet.main, branch: [] } }
+      : { remove: true });
+    if (result.error) return announce(result.error);
+    update();
+    save();
+    announce(line.pending ? "受影响的列车会先停靠下一站。" : removingBranch ? "支线已撤下。" : "线路已撤下。");
   });
   byId("city-form").addEventListener("submit", (event) => {
     event.preventDefault();
@@ -480,8 +660,10 @@
   window.addEventListener("pagehide", save);
 
   const record = arcadeSaves.read(id);
-  if (query.get("mode") !== "new" && record?.version === version && validCity(record.state)) {
-    launch(record.state);
+  if (query.get("mode") !== "new" && [1, version].includes(record?.version) && validCity(record.state, record.version)) {
+    const state = record.version === 1 ? MetroNetwork.migrate(record.state) : record.state;
+    launch(state);
+    if (record.version === 1) save();
   } else {
     if (query.get("mode") === "resume") text("setup-title", "创建新的城市存档");
     cityDialog.showModal();

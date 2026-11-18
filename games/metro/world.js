@@ -89,10 +89,14 @@ const MetroWorld = (() => {
     return [a, { x: a.x + offsetX, y: a.y + offsetY }, { x: b.x - offsetX, y: b.y - offsetY }, b];
   }
 
-  function travelTime(a, b) {
+  function trackLength(a, b) {
     const diagonal = Math.min(Math.abs(a.x - b.x), Math.abs(a.y - b.y));
     const straight = Math.abs(Math.abs(a.x - b.x) - Math.abs(a.y - b.y));
-    return Math.max(1.55, (diagonal * Math.SQRT2 + straight) / 72);
+    return diagonal * Math.SQRT2 + straight;
+  }
+
+  function travelTime(a, b) {
+    return Math.max(1.85, trackLength(a, b) / 66);
   }
 
   function timeLabel(time) {
@@ -113,16 +117,27 @@ const MetroWorld = (() => {
   }
 
   function activity(station, time) {
-    const phase = period(time);
-    if (phase === "夜间") return station.type === "airport" ? 0.36 : 0.17;
+    const minute = time % 1440;
+    const ramp = (start, end, shoulder) =>
+      Math.max(0, Math.min(1, (minute - start) / shoulder, (end - minute) / shoulder));
+    const morning = ramp(412, 581, 27);
+    const evening = ramp(976, 1185, 32);
+    const daytime = ramp(338, 1360, 40);
+    const surge = (offset, cycle, width) => {
+      const phase = (time + station.id * offset) % cycle;
+      return Math.max(0, Math.min(1, phase / 3, (width - phase) / 5));
+    };
+    let rate;
     switch (station.type) {
-      case "home": return phase === "早高峰" ? 2.05 : phase === "晚高峰" ? 1.05 : 0.86;
-      case "work": return phase === "晚高峰" ? 2.12 : phase === "早高峰" ? 0.61 : 0.91;
-      case "shops": return time % 1440 > 660 ? 1.23 : 0.72;
-      case "rail": return (time + station.id * 7) % 48 < 10 ? 1.95 : 0.85;
-      case "airport": return (time + station.id * 13) % 92 < 19 ? 2.13 : 0.85;
-      default: return phase.endsWith("高峰") ? 1.54 : 0.9;
+      case "home": rate = 0.84 + morning * 1.12 + evening * 0.22; break;
+      case "work": rate = 0.9 - morning * 0.27 + evening * 1.13; break;
+      case "shops": rate = 0.71 + ramp(640, 1320, 56) * 0.55; break;
+      case "rail": rate = 0.87 + surge(7, 48, 13) * 1.05; break;
+      case "airport": rate = 0.87 + surge(13, 92, 22) * 1.18; break;
+      default: rate = 0.91 + (morning + evening) * 0.58;
     }
+    const night = station.type === "airport" ? 0.35 : 0.17;
+    return night + (rate - night) * daytime;
   }
 
   function uniqueName(base, used, alternatives) {
@@ -154,7 +169,8 @@ const MetroWorld = (() => {
     }
     const station = {
       id: state.nextStation++, area: area.id, x: spot.x, y: spot.y, type: spot.type, name,
-      factor: 0.84 + random(state) * 0.32, queue: [], waiting: 0, platforms: [],
+      factor: 0.84 + random(state) * 0.32, queue: [], waiting: 0, platforms: {},
+      length: 4, tracks: 2,
       missed: 0, lost: 0,
     };
     state.stations.push(station);
@@ -300,6 +316,6 @@ const MetroWorld = (() => {
     }).id;
   }
 
-  return { size, types, areas, townNames, random, pick, terrain, riverX, boundary, track, distance, travelTime,
+  return { size, types, areas, townNames, random, pick, terrain, riverX, boundary, track, distance, trackLength, travelTime,
     timeLabel, dayLabel, period, createCity, openArea, advance, demandRates, destination };
 })();

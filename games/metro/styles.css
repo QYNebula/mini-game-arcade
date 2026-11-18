@@ -101,8 +101,13 @@ a:focus-visible, button:focus-visible, input:focus-visible { outline: 3px solid 
 .draft-copy strong { display: block; margin-bottom: 2px; font-size: 15px; }
 .draft-buttons, .line-actions, .dialog-actions { display: flex; gap: 5px; flex-wrap: wrap; }
 .draft-buttons { margin-left: auto; }
+.draft-facilities { display: grid; width: 100%; gap: 9px; padding: 9px 11px; border-radius: 8px; background: #f7eddb; color: #6e512f; font-size: 13px; }
+.draft-facilities p { margin: 0 0 4px; line-height: 1.5; }
+.draft-facilities label { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; }
+.draft-facilities input { min-height: 20px; width: 20px; }
+.draft-facilities select { min-height: 36px; padding: 3px 7px; border: 1px solid var(--line); border-radius: 7px; background: var(--panel); color: var(--ink); font: inherit; }
 
-.desk-tabs { display: grid; grid-template-columns: repeat(3, 1fr); margin: 10px; padding: 4px; gap: 4px; border-radius: 11px; background: #eff0e5; }
+.desk-tabs { display: grid; grid-template-columns: repeat(4, 1fr); margin: 10px; padding: 4px; gap: 4px; border-radius: 11px; background: #eff0e5; }
 .desk-tabs button { min-height: 44px; border: 0; border-radius: 8px; background: transparent; font-weight: 750; font-size: 14px; color: var(--muted); }
 .desk-tabs button[aria-pressed="true"] { color: var(--teal-dark); background: var(--panel); box-shadow: 0 1px 3px #23382b14; }
 .desk-pane { padding: 5px 14px 17px; }
@@ -120,6 +125,11 @@ a:focus-visible, button:focus-visible, input:focus-visible { outline: 3px solid 
 .station-info .muted { margin: 0 0 8px; }
 .station-note { margin: 8px 0 0; overflow-wrap: anywhere; }
 .station-numbers dd { font-size: 14px; }
+.station-facilities { margin-top: 12px; padding-top: 11px; border-top: 1px solid var(--line); }
+.station-facilities h3, .fleet-section h3 { margin: 0 0 5px; font-size: 14px; }
+.facility-form { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-bottom: 7px; }
+.facility-form label { display: flex; gap: 5px; align-items: center; font-size: 13px; font-weight: 700; }
+.facility-form input { width: 65px; }
 .station-state { border-radius: 6px; background: #edf1e5; padding: 3px 6px; }
 .bottleneck { display: block; width: 100%; text-align: start; min-height: 44px; border: 1px solid #ead0bb; border-radius: 8px; padding: 7px 10px; background: #f8ebdc; color: #83492d; font-size: 13px; font-weight: 700; }
 .bottleneck:hover { background: #f4e1cb; }
@@ -140,11 +150,21 @@ a:focus-visible, button:focus-visible, input:focus-visible { outline: 3px solid 
 .line-list button::before { content: ""; display: block; width: 9px; height: 9px; border-radius: 50%; background: var(--line-color); }
 .line-overview { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
 .route-stops { padding: 9px 10px; margin: 9px 0; border: 1px solid var(--line); border-radius: 8px; background: #f5f5e9; font-size: 13px; line-height: 1.6; color: var(--ink); overflow-wrap: anywhere; max-height: 112px; overflow: auto; }
-.line-settings { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.line-settings label, #city-form label { display: grid; gap: 5px; font-weight: 750; font-size: 13px; color: var(--ink); }
+.route-stops { white-space: pre-line; }
+.line-title, .fleet-row label, #city-form label { display: grid; gap: 5px; font-weight: 750; font-size: 13px; color: var(--ink); }
+.line-title { margin-bottom: 10px; }
 input { max-width: 100%; min-height: 44px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: white; color: var(--ink); }
-.line-settings input { width: 100%; }
-#line-limit { margin: 6px 0 10px; }
+.fleet-section { margin: 8px 0; padding: 9px; border: 1px solid var(--line); border-radius: 9px; background: #f9f9ef; }
+.fleet-section p { margin: 0 0 7px; }
+.fleet-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; gap: 5px; align-items: end; margin-bottom: 5px; }
+.fleet-row input { width: 100%; padding-inline: 7px; }
+.fleet-row button { min-width: 44px; }
+#line-error { color: #964c35; }
+.finance-details { margin: 12px 0 0; }
+.finance-details div { display: flex; justify-content: space-between; gap: 8px; padding: 9px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
+.finance-details dd { margin: 0; font-weight: 800; font-variant-numeric: tabular-nums; }
+#finance-pane .metrics dd { font-size: 15px; }
+.negative { color: #9b4835; }
 .district-proposal { padding: 12px; border: 1px dashed #d1b88e; border-radius: 10px; background: #faf0e0; }
 .district-proposal h3 { margin: 0 0 3px; font-size: 17px; }
 .district-proposal p { margin: 0 0 10px; color: #765f40; font-size: 13px; line-height: 1.6; }

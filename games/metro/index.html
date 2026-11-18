@@ -6,12 +6,13 @@
     <meta name="theme-color" content="#f8f7ef">
     <meta name="description" content="城市地铁。拖线连接车站，调车疏通高峰，按自己的节奏打开下一片城区。">
     <title>城市地铁 · 指尖游戏厅</title>
-    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="styles.css?v=2">
     <script src="../../js/save-store.js" defer></script>
-    <script src="world.js" defer></script>
-    <script src="simulation.js" defer></script>
-    <script src="map.js" defer></script>
-    <script src="game.js" defer></script>
+    <script src="world.js?v=2" defer></script>
+    <script src="network.js?v=2" defer></script>
+    <script src="simulation.js?v=2" defer></script>
+    <script src="map.js?v=2" defer></script>
+    <script src="game.js?v=2" defer></script>
   </head>
   <body>
     <header class="topbar">
@@ -72,6 +73,22 @@
               <button class="button button-secondary" id="cancel-draft" type="button">取消</button>
               <button class="button button-primary" id="confirm-draft" type="button" disabled>确认</button>
             </div>
+            <div id="draft-facilities" class="draft-facilities" hidden>
+              <div id="draft-tracks" hidden>
+                <p id="draft-track-note"></p>
+                <label><input type="checkbox" id="draft-expand-tracks"> 确认时补足沿线轨道</label>
+              </div>
+              <div id="draft-length" hidden>
+                <p id="draft-length-note"></p>
+                <label>短站台处理
+                  <select id="draft-length-choice">
+                    <option value="">请选择</option>
+                    <option value="extend">延长所需站台</option>
+                    <option value="trim">缩短受影响的编组</option>
+                  </select>
+                </label>
+              </div>
+            </div>
           </div>
         </section>
 
@@ -80,6 +97,7 @@
             <button type="button" data-tab="operations" aria-pressed="true">运营</button>
             <button type="button" data-tab="lines" aria-pressed="false">线路</button>
             <button type="button" data-tab="districts" aria-pressed="false">新区</button>
+            <button type="button" data-tab="finance" aria-pressed="false">收支</button>
           </nav>
 
           <section class="desk-pane" id="operations-pane">
@@ -105,6 +123,15 @@
               <p class="station-note" id="station-direction"></p>
               <p class="station-note" id="station-destination"></p>
               <p class="station-note" id="station-missed"></p>
+              <div class="station-facilities">
+                <h3>站场</h3>
+                <p class="muted" id="station-tracks"></p>
+                <form class="facility-form" id="platform-form">
+                  <label>站台延至 <input id="platform-length" aria-label="站台目标长度" type="number" required step="1" inputmode="numeric"> 节</label>
+                  <button type="submit" class="button button-secondary">延长站台</button>
+                </form>
+                <button type="button" class="button button-secondary" id="expand-tracks">增设 2 轨</button>
+              </div>
             </section>
           </section>
 
@@ -120,14 +147,14 @@
               <p class="route-stops" id="line-stops"></p>
               <p class="muted" id="line-traffic"></p>
               <form id="line-form">
-                <div class="line-settings">
-                  <label>列车数量 <input id="train-count" type="number" min="0" step="1" required inputmode="numeric"></label>
-                  <label>每列车厢 <input id="car-count" type="number" min="1" step="1" required inputmode="numeric"></label>
-                </div>
-                <p class="muted" id="line-limit"></p>
+                <label class="line-title">线路名称 <input id="line-title" type="text" maxlength="22" autocomplete="off"></label>
+                <div id="fleet-editor"></div>
+                <p class="muted" id="line-error" role="status" hidden></p>
                 <div class="line-actions">
                   <button class="button button-primary" id="apply-line" type="submit">应用调度</button>
                   <button class="button button-secondary" id="edit-line" type="button">改线</button>
+                  <button class="button button-secondary" id="edit-branch" type="button">添加支线</button>
+                  <button class="button button-plain danger" id="remove-branch" type="button" hidden>撤支线</button>
                   <button class="button button-plain danger" id="remove-line" type="button">撤线</button>
                 </div>
               </form>
@@ -146,6 +173,20 @@
             </article>
             <p class="empty-note" id="district-next" hidden></p>
             <ul class="district-list" id="district-list"></ul>
+          </section>
+          <section class="desk-pane" id="finance-pane" hidden>
+            <div class="section-heading"><h2>运营收支</h2><span id="finance-day"></span></div>
+            <dl class="metrics">
+              <div><dt>今日票款</dt><dd id="income-today">¥0</dd></div>
+              <div><dt>今日运行</dt><dd id="running-today">¥0</dd></div>
+              <div><dt>今日运营盈亏</dt><dd id="profit-today">¥0</dd></div>
+            </dl>
+            <dl class="finance-details">
+              <div><dt>累计运营盈亏</dt><dd id="profit-total">¥0</dd></div>
+              <div><dt>累计建设及购车</dt><dd id="building-total">¥0</dd></div>
+              <div><dt>账面余额</dt><dd id="balance-total">¥0</dd></div>
+            </dl>
+            <p class="muted" id="finance-rule"></p>
           </section>
         </aside>
       </div>
