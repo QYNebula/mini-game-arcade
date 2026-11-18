@@ -31,6 +31,10 @@
     return `assets/${game.id}.webp`;
   }
 
+  function gameSave(game) {
+    return arcadeSaves.read(game.saveKey || game.id);
+  }
+
   function renderGames(category) {
     const games = category === "all" ? arcadeGames : arcadeGames.filter((game) => game.category === category);
     const cards = games.map((game, index) => {
@@ -65,7 +69,7 @@
   }
 
   function refreshGameSave() {
-    const save = currentGame.entry ? arcadeSaves.read(currentGame.id) : null;
+    const save = currentGame.entry ? gameSave(currentGame) : null;
     gameProgress.hidden = !save;
     gameProgress.textContent = save ? `上次进度 · ${save.summary || "已有存档"}` : "";
     resumeGame.hidden = !save;
@@ -97,7 +101,7 @@
     const entries = [];
     for (const game of arcadeGames) {
       if (!game.entry) continue;
-      const save = arcadeSaves.read(game.id);
+      const save = gameSave(game);
       if (save) entries.push({ game, save });
     }
 
@@ -113,7 +117,7 @@
       const button = row.querySelector("button");
       button.setAttribute("aria-label", `继续${game.title}`);
       button.addEventListener("click", () => {
-        if (arcadeSaves.read(game.id)) launchGame(game, "resume");
+        if (gameSave(game)) launchGame(game, "resume");
         else renderSaves();
       });
       return row;
@@ -137,12 +141,12 @@
   });
 
   resumeGame.addEventListener("click", () => {
-    if (arcadeSaves.read(currentGame.id)) launchGame(currentGame, "resume");
+    if (gameSave(currentGame)) launchGame(currentGame, "resume");
     else refreshGameSave();
   });
 
   newGame.addEventListener("click", () => {
-    if (!arcadeSaves.read(currentGame.id)) {
+    if (!gameSave(currentGame)) {
       launchGame(currentGame, "new");
       return;
     }

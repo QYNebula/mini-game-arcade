@@ -19,8 +19,9 @@ const arcadeGames = [
     id: "progress",
     category: "simulation",
     title: "进步模拟器",
-    summary: "从第一天报到，走完一段干部生涯",
-    description: "选择学历和招录岗位，安排手头的工作，经历年度考核、交流和换届。多年前的项目会再找上门，每一段履历都有不同的去向。",
+    summary: "考进来，把每个月用在想做的事上",
+    description: "完成模拟考试，按成绩分配单位。每半年安排工作、协作和休养，在符合资格时争取任用。做过的选择会留在履历里。",
+    saveKey: "progress-v2",
     entry: "games/progress/index.html",
   },
 ];
