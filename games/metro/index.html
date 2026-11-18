@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#f8f7ef">
+    <meta name="description" content="城市地铁。拖线连接车站，调车疏通高峰，按自己的节奏打开下一片城区。">
+    <title>城市地铁 · 指尖游戏厅</title>
+    <link rel="stylesheet" href="styles.css">
+    <script src="../../js/save-store.js" defer></script>
+    <script src="world.js" defer></script>
+    <script src="simulation.js" defer></script>
+    <script src="map.js" defer></script>
+    <script src="game.js" defer></script>
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="topbar-inner">
+        <a class="back" href="../../index.html"><span aria-hidden="true">‹</span> 大厅</a>
+        <div class="game-identity">
+          <span class="metro-mark" aria-hidden="true"></span>
+          <div><p>城市地铁</p><h1 id="city-name">新城市</h1></div>
+        </div>
+        <span class="save-indicator" id="save-indicator" hidden>本机存档</span>
+      </div>
+    </header>
+
+    <main class="game-shell" id="game-shell" hidden>
+      <section class="clock-bar" aria-label="游戏时间">
+        <div class="clock">
+          <span id="day-label">第 1 天</span>
+          <time id="clock-label">06:30</time>
+          <span class="period" id="period-label">平峰</span>
+        </div>
+        <div class="speed-controls" aria-label="运行速度">
+          <button class="button button-primary play-toggle" id="play-toggle" type="button">开始运行</button>
+          <div class="speeds" role="group" aria-label="时间倍率">
+            <button type="button" data-speed="1" aria-pressed="true">1×</button>
+            <button type="button" data-speed="2" aria-pressed="false">2×</button>
+            <button type="button" data-speed="4" aria-pressed="false">4×</button>
+          </div>
+        </div>
+      </section>
+
+      <div class="play-grid">
+        <section class="map-column" aria-label="地铁地图">
+          <div class="map-stage">
+            <canvas id="metro-map" aria-label="城市线路图。拖动平移，滚轮或双指缩放。建线时拖过车站。"></canvas>
+            <div class="map-caption" id="map-caption"></div>
+            <div class="map-legend" aria-label="客流标记"><span>待接入</span><span>运营拥堵</span></div>
+            <div class="map-tools" aria-label="地图操作">
+              <button type="button" id="station-labels" aria-pressed="true">站名</button>
+              <div class="zoom-tools" role="group" aria-label="地图缩放">
+                <button type="button" id="zoom-in" aria-label="放大地图">+</button>
+                <button type="button" id="zoom-out" aria-label="缩小地图">−</button>
+                <button type="button" id="fit-map">全图</button>
+              </div>
+            </div>
+          </div>
+          <div class="map-footer" id="normal-map-actions">
+            <p id="map-hint">新建线路后，用手指拖过要停靠的站。</p>
+            <button class="button button-primary" id="build-line" type="button">＋ 新建线路</button>
+          </div>
+          <div class="draft-footer" id="draft-actions" hidden>
+            <div class="draft-copy">
+              <strong id="draft-title">新建线路</strong>
+              <p id="draft-summary">从起点站拖过要停靠的站。</p>
+            </div>
+            <div class="draft-buttons">
+              <button class="button button-plain" id="undo-stop" type="button">退一站</button>
+              <button class="button button-plain" id="reset-draft" type="button">重画</button>
+              <button class="button button-secondary" id="cancel-draft" type="button">取消</button>
+              <button class="button button-primary" id="confirm-draft" type="button" disabled>确认</button>
+            </div>
+          </div>
+        </section>
+
+        <aside class="desk" aria-label="地铁调度台">
+          <nav class="desk-tabs" aria-label="调度台面板">
+            <button type="button" data-tab="operations" aria-pressed="true">运营</button>
+            <button type="button" data-tab="lines" aria-pressed="false">线路</button>
+            <button type="button" data-tab="districts" aria-pressed="false">新区</button>
+          </nav>
+
+          <section class="desk-pane" id="operations-pane">
+            <div class="section-heading"><h2>全网运营</h2><span id="trains-running"></span></div>
+            <dl class="metrics">
+              <div><dt>候车人数</dt><dd id="waiting-total">0</dd></div>
+              <div><dt>平均候车</dt><dd id="mean-wait">—</dd></div>
+              <div><dt>送达率</dt><dd id="arrival-rate">—</dd></div>
+            </dl>
+            <p class="outcomes" id="outcomes">已送达 0 · 就近下车 0 · 流失 0</p>
+            <button class="bottleneck" id="focus-bottleneck" type="button" hidden></button>
+            <div class="station-empty" id="station-empty">点地图上的站，查看候车方向和乘客去向。</div>
+            <section class="station-info" id="station-info" aria-labelledby="station-name" hidden>
+              <div class="section-heading">
+                <h2 id="station-name"></h2><span class="station-state" id="station-state"></span>
+              </div>
+              <p class="muted" id="station-kind"></p>
+              <dl class="station-numbers">
+                <div><dt>现场等候</dt><dd id="station-waiting"></dd></div>
+                <div><dt>预计出发</dt><dd id="station-demand"></dd></div>
+                <div><dt>平均已等</dt><dd id="station-age"></dd></div>
+              </dl>
+              <p class="station-note" id="station-direction"></p>
+              <p class="station-note" id="station-destination"></p>
+              <p class="station-note" id="station-missed"></p>
+            </section>
+          </section>
+
+          <section class="desk-pane" id="lines-pane" hidden>
+            <div class="section-heading"><h2>线路调度</h2><span id="line-count"></span></div>
+            <div class="line-list" id="line-list" aria-label="选择线路"></div>
+            <p class="empty-note" id="lines-empty">新建线路后，可以在这里配车和改线。</p>
+            <div id="line-info" hidden>
+              <div class="line-overview">
+                <strong id="line-name"></strong>
+                <span class="muted" id="line-operation"></span>
+              </div>
+              <p class="route-stops" id="line-stops"></p>
+              <p class="muted" id="line-traffic"></p>
+              <form id="line-form">
+                <div class="line-settings">
+                  <label>列车数量 <input id="train-count" type="number" min="0" step="1" required inputmode="numeric"></label>
+                  <label>每列车厢 <input id="car-count" type="number" min="1" step="1" required inputmode="numeric"></label>
+                </div>
+                <p class="muted" id="line-limit"></p>
+                <div class="line-actions">
+                  <button class="button button-primary" id="apply-line" type="submit">应用调度</button>
+                  <button class="button button-secondary" id="edit-line" type="button">改线</button>
+                  <button class="button button-plain danger" id="remove-line" type="button">撤线</button>
+                </div>
+              </form>
+            </div>
+          </section>
+
+          <section class="desk-pane" id="districts-pane" hidden>
+            <div class="section-heading"><h2>城市发展</h2><span id="district-count"></span></div>
+            <article class="district-proposal" id="district-proposal" hidden>
+              <h3 id="district-name"></h3>
+              <p id="district-estimate"></p>
+              <div class="line-actions">
+                <button type="button" class="button button-primary" id="open-district">开放新区</button>
+                <button type="button" class="button button-secondary" id="locate-district">地图定位</button>
+              </div>
+            </article>
+            <p class="empty-note" id="district-next" hidden></p>
+            <ul class="district-list" id="district-list"></ul>
+          </section>
+        </aside>
+      </div>
+      <p class="event-message" id="event-message" role="status" hidden></p>
+    </main>
+
+    <dialog class="dialog city-dialog" id="city-dialog" aria-labelledby="setup-title">
+      <div class="setup-cover" aria-hidden="true"></div>
+      <div class="dialog-content">
+        <h2 id="setup-title">建一座城市的地铁</h2>
+        <p>拖线连站，调车疏通高峰，按自己的节奏开放新区。</p>
+        <form id="city-form">
+          <label for="city-input">城市名称</label>
+          <input id="city-input" name="city" type="text" maxlength="16" autocomplete="off" placeholder="留空自动取名">
+          <div class="dialog-actions">
+            <a class="button button-secondary" href="../../index.html">返回大厅</a>
+            <button class="button button-primary" type="submit">进入城市</button>
+          </div>
+        </form>
+      </div>
+    </dialog>
+
+    <dialog class="dialog" id="remove-dialog" aria-labelledby="remove-title">
+      <form class="dialog-content" method="dialog">
+        <h2 id="remove-title">撤下这条线路？</h2>
+        <p>车上的乘客会在下一站下车，再寻找可用的路线。</p>
+        <div class="dialog-actions">
+          <button class="button button-secondary" value="cancel" autofocus>取消</button>
+          <button class="button button-primary" value="remove">确认撤线</button>
+        </div>
+      </form>
+    </dialog>
+  </body>
+</html>

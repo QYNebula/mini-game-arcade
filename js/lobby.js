@@ -175,8 +175,12 @@
     }
   });
 
+  const categories = new Set(arcadeGames.map((game) => game.category));
   const hasGames = arcadeGames.length > 0;
-  gameFilters.hidden = !hasGames;
+  gameFilters.hidden = categories.size < 2;
+  for (const filter of filters) {
+    filter.hidden = filter.dataset.category !== "all" && !categories.has(filter.dataset.category);
+  }
   browseGames.hidden = !hasGames;
   renderGames("all");
 })();
