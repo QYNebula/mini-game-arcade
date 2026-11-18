@@ -36,8 +36,7 @@
         </div>
         <div class="hero-copy">
           <h1 id="lobby-title">小游戏大厅</h1>
-          <p>想冲洗、收纳，还是解个谜？</p>
-          <a class="button button-primary" href="#game-library">
+          <a class="button button-primary" id="browse-games" href="#game-library" hidden>
             浏览游戏<span aria-hidden="true">↓</span>
           </a>
         </div>
@@ -46,15 +45,15 @@
       <section class="library" id="game-library" aria-labelledby="library-title" tabindex="-1">
         <div class="library-header">
           <h2 id="library-title">游戏库</h2>
-          <div class="filters" role="group" aria-label="按玩法筛选">
+          <div class="filters" id="game-filters" role="group" aria-label="按玩法筛选" hidden>
             <button type="button" data-category="all" aria-pressed="true">全部</button>
             <button type="button" data-category="relax" aria-pressed="false">解压</button>
             <button type="button" data-category="puzzle" aria-pressed="false">解谜</button>
             <button type="button" data-category="reaction" aria-pressed="false">反应</button>
           </div>
         </div>
-        <p class="library-summary" id="library-summary" role="status"></p>
-        <ul class="game-grid" id="game-list"></ul>
+        <p class="library-summary library-empty" id="library-summary" role="status">游戏上线后会显示在这里。</p>
+        <ul class="game-grid" id="game-list" hidden></ul>
         <noscript><p>请开启浏览器的 JavaScript 来浏览游戏和读取存档。</p></noscript>
       </section>
     </main>

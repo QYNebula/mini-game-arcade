@@ -137,7 +137,6 @@ a:focus-visible, button:focus-visible {
   line-height: 1.12;
   letter-spacing: -0.045em;
 }
-.hero p { margin: 20px 0 27px; color: #514467; font-size: clamp(15px, 1.7vw, 19px); }
 .button {
   display: inline-flex;
   align-items: center;
@@ -156,7 +155,7 @@ a:focus-visible, button:focus-visible {
 .button-primary:hover { background: var(--purple-dark); }
 .button-secondary { border-color: #dcd7ed; background: #fff; color: var(--purple); }
 .button-secondary:hover { background: var(--lavender); }
-.hero .button { min-height: 49px; padding-inline: 19px; }
+.hero .button { min-height: 49px; margin-top: 24px; padding-inline: 19px; }
 
 .library { margin-block-start: 39px; scroll-margin-top: 20px; }
 .library-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
@@ -184,6 +183,13 @@ a:focus-visible, button:focus-visible {
 .filters button[aria-pressed="true"] { color: var(--purple); background: var(--lavender); }
 .filters button:hover { color: var(--purple); }
 .library-summary { margin: 6px 0 17px; color: var(--muted); font-size: 14px; }
+.library-empty {
+  padding: 24px 18px;
+  border: 1px dashed #ddd5ee;
+  border-radius: 14px;
+  background: #fbfafd;
+  line-height: 1.6;
+}
 .game-grid, .save-list { list-style: none; margin: 0; padding: 0; }
 .game-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; }
 .game-card {
@@ -363,8 +369,7 @@ a:focus-visible, button:focus-visible {
     border-radius: 21px;
   }
   .hero h1 { font-size: clamp(34px, 8.6vw, 53px); }
-  .hero p { margin: 10px 0 15px; font-size: 14px; }
-  .hero .button { min-height: 45px; padding-inline: 14px; font-size: 14px; }
+  .hero .button { min-height: 45px; margin-top: 16px; padding-inline: 14px; font-size: 14px; }
   .hero-art { inset: 32% 0 0 5%; }
   .hero-art img { object-position: 65% 55%; }
   .hero-art::after {

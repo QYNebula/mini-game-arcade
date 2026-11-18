@@ -1,6 +1,8 @@
 (() => {
   const gameList = document.querySelector("#game-list");
   const librarySummary = document.querySelector("#library-summary");
+  const gameFilters = document.querySelector("#game-filters");
+  const browseGames = document.querySelector("#browse-games");
   const filters = [...document.querySelectorAll("[data-category]")];
   const cardTemplate = document.querySelector("#game-card-template");
 
@@ -47,6 +49,16 @@
     });
 
     gameList.replaceChildren(...cards);
+    const isEmpty = games.length === 0;
+    gameList.hidden = isEmpty;
+    librarySummary.classList.toggle("library-empty", isEmpty);
+    if (isEmpty) {
+      librarySummary.textContent = category === "all"
+        ? "游戏上线后会显示在这里。"
+        : "这个分类暂无游戏。";
+      return;
+    }
+
     librarySummary.textContent = games.every((game) => !game.entry)
       ? `${games.length} 款候选游戏`
       : `${games.length} 款游戏`;
@@ -163,5 +175,8 @@
     }
   });
 
+  const hasGames = arcadeGames.length > 0;
+  gameFilters.hidden = !hasGames;
+  browseGames.hidden = !hasGames;
   renderGames("all");
 })();
