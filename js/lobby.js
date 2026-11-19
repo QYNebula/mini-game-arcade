@@ -32,7 +32,7 @@
   }
 
   function gameSave(game) {
-    return arcadeSaves.read(game.saveKey || game.id);
+    return arcadeSaves.read(game.saveKey || game.id) || (game.priorSaveKey ? arcadeSaves.read(game.priorSaveKey) : null);
   }
 
   function renderGames(category) {

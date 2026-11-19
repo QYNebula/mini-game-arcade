@@ -1,6 +1,7 @@
 (() => {
-  const id = "progress-v2";
-  const version = 2;
+  const id = "progress-v3";
+  const priorId = "progress-v2";
+  const version = 3;
   const R = ProgressRules;
   const C = ProgressContent;
   const E = ProgressCareer;
@@ -8,18 +9,16 @@
   const byId = (key) => document.getElementById(key);
   const text = (key, value) => { byId(key).textContent = value; };
   const tabs = [...document.querySelectorAll("[data-view]")];
-  const categories = [...document.querySelectorAll("[data-group]")];
   const fresh = new URLSearchParams(location.search).get("mode") === "new";
   const legacy = arcadeSaves.read("progress");
   let replaceMode = fresh;
   let state = null;
   let exam = null;
   let view = "desk";
-  let group = "merit";
   let confirmation = null;
   let revealItem = null;
   let revealed = false;
-  let timer = 0;
+  let timers = [];
 
   function element(tag, className, value) {
     const node = document.createElement(tag);
@@ -143,16 +142,19 @@
 
   function doAction(action, scroll = false) {
     if (!state) return;
-    const hadEvent = Boolean(state.pending.length);
+    const previous = E.currentEvent(state)?.kind;
+    const previousLog = state.log.at(-1);
     if (!action()) return;
     save();
     const last = state.log.at(-1);
-    if (last) text("announcement", last.title + "。" + last.detail);
+    if (last && last !== previousLog) text("announcement", last.title + "。" + last.detail);
     render();
-    if (scroll || state.outcome) window.scrollTo(0, 0);
-    else if (!hadEvent && state.pending.length && !state.reveals.length && view === "desk") {
+    const current = E.currentEvent(state)?.kind;
+    if (state.outcome) window.scrollTo(0, 0);
+    else if (current && current !== previous && !state.reveals.length && view === "desk") {
       byId("event").scrollIntoView({ block: "nearest" });
-    }
+      byId("event").querySelector("h2").focus({ preventScroll: true });
+    } else if (scroll) window.scrollTo(0, 0);
   }
 
   function activate(next) {
@@ -164,57 +166,80 @@
   const percent = (value) => Number(value.toFixed(1)) + "%";
   const signed = (value) => (value > 0 ? "+" : "−") + Math.abs(value);
 
-  function bannerStat(label, value) {
+  function qualification(review) {
+    if (!review.wanted) return "暂无方向";
+    if (!review.qualified) return "资格未满足";
+    if (state.health < 20) return "病休 · 暂缓任用";
+    return review.next === null ? "到龄前暂无窗口" : "已满足资格";
+  }
+
+  function bannerStat(label, value, detail = "") {
     const row = element("div", "banner-stat");
     row.append(element("span", "", label), element("strong", "", value));
+    if (detail) row.append(element("small", "", detail));
     return row;
   }
 
   function renderBanner() {
     const [unit, duty] = E.title(state).split(" · ");
-    text("current-period", R.half(state.month) + " · " + (state.central ? "中央" : state.post.location));
+    text("current-period", R.date(state.month) + " · " + (state.central ? "中央" : state.post.location));
     text("current-title", duty || unit);
     text("current-profile", (duty ? unit + " · " : "") + state.name + " · " +
       (state.formal ? R.ranks[state.rank] : "新录用试用期") + " · " + E.age(state) + " 岁");
     const review = E.assessTarget(state);
     byId("banner-stats").replaceChildren(
-      bannerStat("任用胜算", review.qualified && state.health >= 20 ? percent(review.probability) : "—"),
-      bannerStat("危险值", E.danger(state) + "%"), bannerStat("健康", state.health + " / 100"));
+      bannerStat("参考胜算", percent(review.probability), state.goal === "stay" ? "留任 · 暂不参评" : qualification(review)),
+      bannerStat("永久危险", E.danger(state) + "%"), bannerStat("健康 · " + E.healthStatus(state), state.health + " / 100"));
   }
 
-  function renderCalendar() {
-    const left = E.remaining(state);
-    const spent = state.month % 6;
-    const base = state.month % 12 < 6 ? 1 : 7;
-    const ticks = element("div", "month-ticks");
-    ticks.setAttribute("aria-label", "已安排 " + spent + " 个月");
-    for (let index = 0; index < 6; index++) {
-      const cell = element("div", "month-cell" + (index < spent ? " spent" : index === spent ? " current" : ""), base + index + " 月");
-      if (index === spent) cell.setAttribute("aria-current", "date");
-      ticks.append(cell);
+  function arrange(action) {
+    const apply = () => doAction(action, true);
+    if (state.plan) confirm("改排在办事项？", "已到账的成果继续计入履历。在办事项将按新安排推进。", apply);
+    else apply();
+  }
+
+  function renderAgenda() {
+    const plan = E.planInfo(state);
+    const heading = element("h2", "", plan?.title || (state.health < 20 ? "请先安排病休" : "继续履职"));
+    heading.id = "agenda-title";
+    const status = byId("plan-status");
+    status.replaceChildren(heading);
+    if (plan) {
+      const date = plan.due <= state.month ? plan.label + "待处理" : plan.label + " · " + R.date(plan.due);
+      status.append(element("p", "", date + (plan.end && plan.end !== plan.due ? " · 计划至 " + R.date(plan.end) : "")));
+      const until = plan.end ?? plan.due;
+      if (until > plan.from) {
+        const meter = element("progress", "meter");
+        meter.setAttribute("aria-label", "当前安排进度");
+        meter.max = until - plan.from;
+        meter.value = state.month - plan.from;
+        status.append(meter);
+      }
+    } else {
+      status.append(element("p", "", state.health < 20 ? "病休每月恢复 10 点健康。" : "可排一项工作，或直接推进。一次最多推进两年。"));
     }
-    const copy = element("div");
-    copy.append(element("h2", "", "已安排 " + spent + " / 6 月"),
-      element("p", "", state.health < 20 ? "病休中，可先恢复健康。" : left < 6 - spent ? "到龄前还能安排 " + left + " 个月。" : "安排满六个月后自动结算。"));
-    byId("calendar").replaceChildren(copy, ticks);
+    const advance = byId("advance");
+    advance.disabled = !E.canAdvance(state);
+    byId("cancel-plan").hidden = !plan || !E.canArrange(state);
   }
 
-  function effectLine(option) {
-    const tags = [option.months ? option.months + " 个月" : "当场处理"];
+  function effectLine(option, project = false) {
+    const when = option.months ? (project ? R.date(state.month + option.months) + " 交付" : R.duration(option.months)) : "当场处理";
+    const tags = [when];
     for (const [key, label] of [...Object.entries(C.categories).filter(([key]) => key !== "rest"), ["health", "健康"]]) {
       if (option.effect[key]) tags.push(label + " " + signed(option.effect[key]));
     }
-    if (option.effect.risk) tags.push("危险 +" + option.effect.risk + " 个百分点");
-    return element("span", "effect-line" + (option.effect.risk ? " danger-effect" : ""), tags.join(" · "));
+    if (project && option.effect.health < -15) tags.push("健康至少 60");
+    return element("span", "effect-line", tags.join(" · "));
   }
 
-  function choiceButton(option, handler) {
+  function choiceButton(option, index, event) {
     const control = element("button", "choice");
     control.type = "button";
     control.disabled = !E.allowed(state, option);
-    control.append(element("strong", "", option.title), effectLine(option));
+    control.append(element("strong", "", option.title), effectLine(option, event.kind === "project"));
     if (option.note) control.append(element("span", "effect-line", option.note));
-    control.addEventListener("click", handler);
+    control.addEventListener("click", () => doAction(() => E.chooseEvent(state, index)));
     return control;
   }
 
@@ -224,77 +249,88 @@
     root.hidden = !event;
     if (!event) return;
     const options = element("div", "choices");
-    for (const [index, option] of event.options.entries()) {
-      options.append(choiceButton(option, () => doAction(() => E.chooseEvent(state, index))));
+    const review = event.kind === "review";
+    const label = review ? "任用前" : event.kind === "project" ? "项目取舍" : "到期待办";
+    const heading = element("h2", "", review ? event.offer.title : event.title);
+    heading.tabIndex = -1;
+    if (review) {
+      const current = E.assessTarget(state);
+      const offer = event.offer;
+      const effects = element("p", "danger-effect", percent(current.probability) + " → " + percent(current.probability + offer.bonus) +
+        " · 永久危险 +" + offer.risk + " 个百分点");
+      const actions = element("div", "actions spread");
+      actions.append(button("拒绝，进入结算", () => doAction(() => E.resolveReview(state, false))),
+        button("接受交换", () => doAction(() => E.resolveReview(state, true)), { style: "primary" }));
+      options.append(effects, actions);
+    } else {
+      options.append(...event.options.map((option, index) => choiceButton(option, index, event)));
+      if (event.kind === "project") options.append(button("移交项目", () =>
+        confirm("移交这个项目？", "前期工作将一并交接，当前安排结束。", () => doAction(() => E.cancelPlan(state)))));
     }
-    root.replaceChildren(element("p", "overline", R.date(event.month) + " · 到期待办"), element("h2", "", event.title),
-      element("p", "muted explanation", event.body), options);
+    root.replaceChildren(element("p", "overline", R.date(event.month) + " · " + label), heading,
+      element("p", "muted", review ? event.offer.body : event.body));
+    if (event.kind === "project" && state.goal !== "stay") {
+      const current = E.assessTarget(state);
+      root.append(element("p", "fine", nextDate(current.next) + " · " + qualification(current)));
+    }
+    root.append(options);
   }
 
-  function openTask(task) {
-    if (task.options.length === 1) {
-      doAction(() => E.doTask(state, task.id, 0));
-      return;
-    }
-    text("decision-title", task.title);
-    text("decision-body", task.body);
-    byId("decision-options").replaceChildren(...task.options.map((option, index) =>
-      choiceButton(option, () => {
-        byId("task-dialog").close();
-        doAction(() => E.doTask(state, task.id, index));
-      })));
-    byId("task-dialog").showModal();
-  }
-
-  function taskCard(task) {
-    const card = element("article", "task");
+  function card(title, body, detail, action) {
+    const root = element("article", "task");
     const copy = element("div");
-    copy.append(element("h3", "", task.title), element("p", "muted", task.body));
-    if (task.options.length === 1) {
-      const effects = effectLine(task.options[0]);
-      effects.classList.add("fine");
-      copy.append(effects);
-    }
-    const months = task.options.map((choice) => choice.months);
-    const first = Math.min(...months);
-    const last = Math.max(...months);
-    const label = task.options.length === 1 ? "安排 · " + first + " 月" : "选择方案 · " + (first === last ? first : first + "～" + last) + " 月";
-    const blocked = Boolean(state.pending.length) || !task.options.some((option) => E.allowed(state, option));
-    card.append(copy, button(label, () => openTask(task), { disabled: blocked }));
-    return card;
+    copy.append(element("h3", "", title), element("p", "muted", body), element("p", "fine task-detail", detail));
+    root.append(copy, action);
+    return root;
   }
 
-  function restCard() {
-    const block = element("div", "paper rest-options");
-    const label = element("label", "", "休养时长");
-    const select = element("select");
-    select.setAttribute("aria-label", "休养时长");
-    const remaining = E.remaining(state);
-    const max = state.health < 20 ? Math.min(remaining, Math.ceil((20 - state.health) / 10)) : remaining;
-    for (let months = 1; months <= max; months++) {
-      const option = element("option", "", months + " 个月");
-      option.value = String(months);
-      select.append(option);
-    }
-    const blocked = Boolean(state.pending.length || state.reveals.length || !max);
-    select.disabled = blocked;
-    label.append(select);
-    block.append(label, button(state.health < 20 ? "安排病休" : "安排休养", () => doAction(() => E.rest(state, Number(select.value))), { style: "primary", disabled: blocked }));
-    if (remaining > 1 && state.health >= 20) block.append(button("休到本期结束", () => doAction(() => E.rest(state, remaining)), { disabled: blocked }));
-    const intro = element("p", "muted fine", "休养每月恢复 10 点健康，最多到 100。本期时钟继续推进。");
-    return [intro, block];
+  function renderRoutine() {
+    const selector = byId("routine-duration");
+    const months = Number(selector.value);
+    if (!E.durations.includes(months)) return;
+    const blocked = !E.canArrange(state);
+    selector.disabled = blocked;
+    byId("routine-list").replaceChildren(...Object.entries(C.routine).map(([key, routine]) => {
+      const gain = E.routineYield(state, key, months);
+      const detail = state.score[key] >= C.limits[key] ? "已达上限" :
+        gain ? "每半年 +" + E.routineGain + " · 预计 +" + gain : "当前可用时间不足半年";
+      const control = button("安排" + C.categories[key], () => arrange(() => E.startRoutine(state, key, months)),
+        { disabled: blocked || !gain });
+      const item = element("article", "routine-card");
+      item.append(element("h3", "", routine.title), element("p", "fine", routine.body), element("p", "routine-yield", detail), control);
+      return item;
+    }));
   }
 
-  function renderTasks() {
-    const root = byId("tasks");
-    if (state.health < 20) group = "rest";
-    for (const tab of categories) tab.setAttribute("aria-pressed", String(tab.dataset.group === group));
-    text("period-left", "本期还剩 " + E.remaining(state) + " 月");
-    if (group === "rest") root.replaceChildren(...restCard());
-    else {
-      const tasks = E.tasks(state).filter((task) => task.group === group);
-      root.replaceChildren(...(tasks.length ? tasks.map(taskCard) : [element("p", "fine", "本期这一类事项已办完，仍可安排其他事项或休养。")]));
+  function renderRest() {
+    const duration = element("select");
+    const label = element("label", "duration", "休养时长");
+    const atMost = E.retirement(state).month - state.month;
+    const first = state.health < 20 ? Math.ceil((20 - state.health) / 10) : 3;
+    const lengths = [...new Set([first, 6, 12].map((length) => Math.min(length, atMost)))].filter((length) => length > 0);
+    for (const length of lengths) {
+      const option = element("option", "", R.duration(length));
+      option.value = String(length);
+      duration.append(option);
     }
+    label.append(duration);
+    const blocked = !E.canArrange(state) || !lengths.length;
+    duration.disabled = blocked;
+    byId("rest-controls").replaceChildren(element("p", "fine", "休养每月恢复 10 点健康。赶工要求健康达到 60。"), label,
+      button(state.health < 20 ? "安排病休" : "安排休养", () => arrange(() => E.startRest(state, Number(duration.value))), { disabled: blocked }));
+  }
+
+  function renderPlans() {
+    renderRoutine();
+    renderRest();
+    const blocked = !E.canArrange(state);
+    const projects = E.projects(state);
+    byId("projects").replaceChildren(...(projects.length ? projects.map((project) => card(project.title, project.body,
+      "6 个月后定方案 · 最快 9 个月交付", button("安排项目", () => arrange(() => E.startProject(state, project.id)),
+        { disabled: blocked || E.workTime(state) < 9 }))) : [element("p", "fine", "本岗重点项目已办结，可继续安排常驻工作。")]));
+    byId("services").replaceChildren(...E.services(state).map((item) => card(item.title, item.body, R.duration(item.option.months),
+      button("安排", () => arrange(() => E.startService(state, item.id)),
+        { disabled: blocked || E.workTime(state) < item.option.months }))));
   }
 
   function scoreMeter(label, value, max) {
@@ -323,21 +359,43 @@
     }));
   }
 
-  function nextDate(month) { return month === null ? "到龄前暂无排定窗口" : "下个窗口预计在" + R.date(month); }
+  function nextDate(month) {
+    if (month === null) return "到龄前暂无排定窗口";
+    return month === state.month ? "窗口已到 · 正在结算" : "下个岗位窗口 · " + R.date(month);
+  }
 
   function renderDesk() {
-    renderCalendar();
+    renderAgenda();
     renderEvent();
-    renderTasks();
+    renderPlans();
     byId("scores").replaceChildren(...Object.entries(C.limits).map(([key, value]) => scoreMeter(C.categories[key], state.score[key], value)));
     const current = E.assessTarget(state);
-    const currentStatus = current.wanted ? nextDate(current.next) + "。" +
-      (state.health < 20 ? "当前处于病休。" : current.qualified ? "符合资格时按当期表现结算。" :
-        state.placement?.active ? "当前正在完成基层锻炼。" : "查看资格详情和未满足的条件。") : "留任，由你安排本期工作。";
+    const requirement = current.wanted?.needs.find((item) => !item.ok);
+    const detail = state.goal === "stay" ? "当前选择留任。" : requirement ?
+      requirement.label + " · " + requirement.detail : qualification(current);
+    const currentStatus = nextDate(current.next) + "。" + detail;
     byId("notice").replaceChildren(notice(current.wanted?.title || "继续任职", currentStatus),
       notice("下次纪检检查", R.date(E.nextInspection(state)) + " · 当前危险 " + E.danger(state) + "%"),
       button("查看任用与资格", () => activate("dossier")));
-    timeline("journal", state.log.slice(-6).reverse());
+    timeline("journal", state.log.slice(-5).reverse());
+  }
+
+  function renderViolations() {
+    const review = E.assessTarget(state);
+    byId("offense-list").replaceChildren(...E.offenses(state).map((offer) => {
+      const detail = offer.used ? "本任已使用" : !offer.bonus ? "本任加成已满" : !offer.risk ? "危险值已达 100%" :
+        "任内胜算 +" + offer.bonus + " 个百分点 · 永久危险 +" + offer.risk + " 个百分点";
+      const action = button("查看代价", () => confirm(offer.title,
+        "参考胜算由 " + percent(review.probability) + " 提到 " + percent(review.probability + offer.bonus) +
+        "，永久危险增加 " + offer.risk + " 个百分点。任用生效或调任时结清加成。",
+        () => doAction(() => E.offend(state, offer.id))),
+      { disabled: offer.used || !offer.bonus || !offer.risk || Boolean(state.review) });
+      return card(offer.title, offer.body, detail, action);
+    }));
+    byId("offense-summary").replaceChildren(
+      notice("合规表现", percent(review.legitimate)),
+      notice("任内加成", "+" + review.boost + " / " + review.boostLimit + " 个百分点"),
+      notice("累计危险", E.danger(state) + "% · 下次检查 " + R.date(E.nextInspection(state))));
   }
 
   function targetCard(option, active) {
@@ -346,12 +404,11 @@
     const copy = element("div");
     copy.append(element("h3", "", option.title), element("p", "muted", option.procedure + "。"));
     const choose = button(active ? "当前方向" : "选为方向", () => doAction(() => E.setGoal(state, option.id)), {
-      style: active ? "primary" : "secondary", disabled: active,
+      style: active ? "primary" : "secondary", disabled: active || Boolean(state.review),
     });
     head.append(copy, choose);
     const current = E.assessTarget(state, option);
-    const detail = element("p", "fine", nextDate(current.next) + " · " + (current.qualified ?
-      "参考胜算 " + percent(current.probability) + " · 当轮上限 " + current.cap + "%" : "有资格要求待完成"));
+    const detail = element("p", "fine", "参考胜算 " + percent(current.probability) + " · " + qualification(current) + " · " + nextDate(current.next));
     const rules = element("details", "disclosure");
     rules.append(element("summary", "", "资格与出处"));
     const list = element("ul", "requirements");
@@ -378,7 +435,7 @@
   function renderDossier() {
     const target = E.target(state);
     const rows = E.opportunities(state).map((option) => targetCard(option, target?.id === option.id));
-    rows.push(button(!target ? "当前方向 · 留任" : "留任，暂不争取晋升", () => doAction(() => E.setGoal(state, "stay")), { disabled: !target }));
+    rows.push(button(!target ? "当前方向 · 留任" : "留任，暂不争取晋升", () => doAction(() => E.setGoal(state, "stay")), { disabled: !target || Boolean(state.review) }));
     byId("targets").replaceChildren(...rows);
     const retire = E.retirement(state);
     byId("career-facts").replaceChildren(datum("工龄", R.duration(state.month)), datum("基层经历", R.duration(state.localMonths)),
@@ -395,14 +452,14 @@
     }));
     timeline("incidents", incidents);
     if (!incidents.length) byId("incidents").append(element("li", "fine muted", "当前履历没有违规记录。"));
-    const canLeave = state.month >= 60 && state.penalty <= state.month && !state.pending.length;
+    const canLeave = state.month >= 60 && state.penalty <= state.month && E.canArrange(state);
     const actions = [button("申请辞去公职", () => confirm("申请辞去公职？", "办理后进入生涯结算。", () => doAction(() => E.leave(state), true)),
       { disabled: !canLeave })];
     if (R.eligibleEarlyRetirement(state)) actions.push(button("申请按另一档年龄退休", () =>
-      confirm("办理退休？", "将按本人申请和适用的退休条件办结生涯。", () => doAction(() => E.leave(state, true), true))));
+      confirm("办理退休？", "将按本人申请和适用的退休条件办结生涯。", () => doAction(() => E.leave(state, true), true)), { disabled: !E.canArrange(state) }));
     byId("departure").querySelector(".actions").replaceChildren(...actions);
     text("departure-note", state.month < 60 ? "规定服务期还剩 " + R.duration(60 - state.month) + "。" :
-      state.penalty > state.month ? "当前仍在本局处分影响期。" : state.pending.length ? "先处理当前待办事件。" : "");
+      state.penalty > state.month ? "当前仍在本局处分影响期。" : E.currentEvent(state) ? "先处理当前待办事件。" : "");
   }
 
   function renderHandbook() {
@@ -437,17 +494,41 @@
     timeline("ending-log", [{ kind: "office", month: 0, title: "入职报到", detail: state.stints[0].title }, ...highlights]);
   }
 
-  function openReveal() {
+  function clearCeremony() {
+    for (const timer of timers) clearTimeout(timer);
+    timers = [];
+  }
+
+  function confetti() {
+    const colors = ["#b63934", "#e6a637", "#edcf75", "#f4a583", "#a45459", "#abc097"];
+    return Array.from({ length: 30 }, (_, index) => {
+      const particle = element("i");
+      const angle = 2 * Math.PI * index / 30;
+      const distance = 75 + (index * 29) % 140;
+      particle.style.setProperty("--x", Math.round(distance * Math.cos(angle)) + "px");
+      particle.style.setProperty("--y", Math.round(distance * Math.sin(angle)) + "px");
+      particle.style.setProperty("--spin", (index % 2 ? -1 : 1) * (240 + index * 22) + "deg");
+      particle.style.setProperty("--color", colors[index % colors.length]);
+      return particle;
+    });
+  }
+
+  function openReveal(skip = false) {
     if (revealed || !revealItem) return;
-    clearTimeout(timer);
+    clearCeremony();
     revealed = true;
     const dialog = byId("reveal-dialog");
+    const audit = revealItem.kind === "audit";
+    const success = !audit && revealItem.hit;
     dialog.classList.remove("playing");
-    dialog.classList.add("open");
-    if (revealItem.kind === "promotion" && revealItem.hit) dialog.classList.add("success");
+    dialog.classList.add("open", audit ? (revealItem.hit ? "audit-hit" : "audit-clear") : success ? "success" : "miss");
+    if (skip) dialog.classList.add("instant");
+    if (success && !skip) byId("reveal-confetti").replaceChildren(...confetti());
+    text("result-stamp", audit ? (revealItem.hit ? "核查结论" : "核对归档") : success ? "任命生效" : "本轮结束");
     byId("reveal-result").hidden = false;
     text("reveal-title", revealItem.title);
     text("reveal-detail", revealItem.detail);
+    text("reveal-caption", "");
     text("reveal-next", "继续");
     byId("reveal-title").focus({ preventScroll: true });
   }
@@ -456,25 +537,40 @@
     const next = state.reveals[0];
     const dialog = byId("reveal-dialog");
     if (!next) {
-      clearTimeout(timer);
+      clearCeremony();
       revealItem = null;
       if (dialog.open) dialog.close();
       return;
     }
     if (next === revealItem) return;
-    clearTimeout(timer);
+    clearCeremony();
     revealItem = next;
     revealed = false;
-    dialog.className = "dialog paper reveal";
-    text("reveal-kind", R.half(next.month - 1) + " · " + (next.kind === "audit" ? "纪检" : "任用"));
+    const audit = next.kind === "audit";
+    const duration = next.major || !audit && R.central.includes(next.subject) ? 6200 : 5000;
+    const steps = audit ? ["调阅历年案卷", "核对相关记录", "检查结果即将公布"] : ["任用材料送审", "复核考察和推荐记录", "任用结果即将公布"];
+    dialog.className = "dialog paper reveal" + (audit ? " audit" : "");
+    dialog.style.setProperty("--suspense", duration + "ms");
+    text("reveal-kind", R.date(next.month) + " · " + (audit ? "纪检" : "任用"));
     text("reveal-heading", next.subject);
-    text("reveal-chance", (next.kind === "audit" ? "本轮危险 " : "本轮胜算 ") + percent(next.chance));
+    text("reveal-chance", (audit ? "本轮危险 " : "本轮胜算 ") + percent(next.chance));
+    text("reveal-seal", audit ? "纪检案卷" : "任用文件");
     text("reveal-next", "跳过动画");
+    text("reveal-caption", steps[0]);
     byId("reveal-result").hidden = true;
+    byId("reveal-confetti").replaceChildren();
     if (!dialog.open) dialog.showModal();
+    if (matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      openReveal(true);
+      return;
+    }
     void byId("reveal-document").offsetWidth;
     dialog.classList.add("playing");
-    timer = setTimeout(openReveal, matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 1130);
+    timers = [
+      setTimeout(() => text("reveal-caption", steps[1]), duration * 0.32),
+      setTimeout(() => text("reveal-caption", steps[2]), duration * 0.74),
+      setTimeout(openReveal, duration),
+    ];
   }
 
   function render() {
@@ -490,6 +586,7 @@
       }
       if (view === "desk") renderDesk();
       if (view === "dossier") renderDossier();
+      if (view === "violations") renderViolations();
       if (view === "handbook") renderHandbook();
     }
     renderReveal();
@@ -531,21 +628,22 @@
     state = E.create(exam.profile, grade.score, exam.seed);
     exam = null;
     view = "desk";
-    group = "merit";
     save();
     render();
     window.scrollTo(0, 0);
   });
   for (const tab of tabs) tab.addEventListener("click", () => activate(tab.dataset.view));
-  for (const tab of categories) tab.addEventListener("click", () => { group = tab.dataset.group; renderTasks(); });
-  byId("decision-close").addEventListener("click", () => byId("task-dialog").close());
+  byId("routine-duration").addEventListener("change", renderRoutine);
+  byId("advance").addEventListener("click", () => doAction(() => E.advance(state)));
+  byId("cancel-plan").addEventListener("click", () =>
+    confirm("取消安排？", "已经到账的分数和履历继续有效。", () => doAction(() => E.cancelPlan(state))));
   byId("reveal-next").addEventListener("click", () => {
-    if (!revealed) openReveal();
+    if (!revealed) openReveal(true);
     else doAction(() => E.acknowledge(state));
   });
   byId("reveal-dialog").addEventListener("cancel", (event) => {
     event.preventDefault();
-    if (!revealed) openReveal();
+    if (!revealed) openReveal(true);
   });
   byId("confirm-dialog").addEventListener("close", (event) => {
     const action = confirmation;
@@ -563,22 +661,31 @@
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   });
 
-  const record = fresh ? null : arcadeSaves.read(id);
-  if (record?.version === version && record.state?.phase === "career" && E.valid(record.state.data)) {
-    state = record.state.data;
-    byId("saved").hidden = false;
-    text("saved", "本机已存档");
+  const current = fresh ? null : arcadeSaves.read(id);
+  const prior = fresh || current ? null : arcadeSaves.read(priorId);
+  const record = current?.version === version ? current : prior?.version === 2 ? prior : null;
+  const career = record?.state?.phase === "career" ? (record === prior ? E.upgrade(record.state.data) : record.state.data) : null;
+  if (E.valid(career)) {
+    state = career;
+    if (record === prior) save();
+    else {
+      byId("saved").hidden = false;
+      text("saved", "本机已存档");
+    }
     render();
-  } else if (record?.version === version && record.state?.phase === "exam" && examValid(record.state.data)) {
+  } else if (record?.state?.phase === "exam" && examValid(record.state.data)) {
     exam = record.state.data;
-    byId("saved").hidden = false;
-    text("saved", "本机已存档");
+    if (record === prior) save();
+    else {
+      byId("saved").hidden = false;
+      text("saved", "本机已存档");
+    }
     if (exam.done) renderAssignment();
     else renderExam();
   } else {
     showIntake();
     if (legacy || new URLSearchParams(location.search).get("mode") === "resume") {
-      text("resume-note", legacy ? "旧版生涯存档仍保存在这台设备。本次重做从模拟考试开始。" : "这里还没有可续玩的新版存档。");
+      text("resume-note", legacy ? "旧版生涯存档仍保存在这台设备，可在这里导出。" : "这里还没有可续玩的存档。");
       byId("resume-note").hidden = false;
     }
   }

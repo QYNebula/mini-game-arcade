@@ -4,15 +4,15 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#f4ece4">
-  <meta name="description" content="从模拟招考开始，用每一月的决定写下自己的任职履历。">
+  <meta name="description" content="从模拟招考开始，安排任期中的工作与休养，争取下一次任用。">
   <title>进步模拟器 · 指尖游戏厅</title>
-  <link rel="stylesheet" href="styles.css?v=2">
+  <link rel="stylesheet" href="styles.css?v=3">
   <script src="../../js/save-store.js" defer></script>
   <script src="rules.js?v=2" defer></script>
-  <script src="content.js?v=2" defer></script>
+  <script src="content.js?v=3" defer></script>
   <script src="exam.js?v=2" defer></script>
-  <script src="career.js?v=2" defer></script>
-  <script src="game.js?v=2" defer></script>
+  <script src="career.js?v=3" defer></script>
+  <script src="game.js?v=3" defer></script>
 </head>
 <body>
   <header class="masthead">
@@ -28,7 +28,7 @@
         <div class="hero-copy">
           <p class="overline">云岬省 · 模拟招考</p>
           <h1>进步模拟器</h1>
-          <p>从一份试卷开始。每半年，重新决定把时间花在哪儿。</p>
+          <p>从一份试卷开始，决定在每个岗位上把时间花在哪儿。</p>
         </div>
         <img src="../../assets/progress.webp" alt="雨后县城里的办公楼" width="1332" height="888">
       </header>
@@ -91,23 +91,42 @@
       <nav class="tabs" aria-label="生涯页面">
         <button type="button" data-view="desk" aria-controls="desk" aria-pressed="true">安排</button>
         <button type="button" data-view="dossier" aria-controls="dossier" aria-pressed="false">履历与任用</button>
+        <button type="button" data-view="violations" aria-controls="violations" aria-pressed="false">违规操作</button>
         <button type="button" data-view="handbook" aria-controls="handbook" aria-pressed="false">资格手册</button>
       </nav>
-      <section id="desk" aria-label="本期安排">
-        <div class="calendar paper" id="calendar"></div>
+      <section id="desk" aria-label="任内安排">
+        <section class="agenda paper" aria-labelledby="agenda-title">
+          <div id="plan-status"></div>
+          <div class="agenda-actions">
+            <button type="button" class="button primary" id="advance">推进时间 <span aria-hidden="true">→</span></button>
+            <button type="button" class="button secondary" id="cancel-plan" hidden>取消安排</button>
+          </div>
+        </section>
         <div class="desk-grid">
           <div class="stack">
             <section id="event" class="paper event" hidden></section>
-            <section class="paper" aria-labelledby="tasks-title">
-              <div class="section-top"><h2 id="tasks-title">本期安排</h2><span class="tag" id="period-left"></span></div>
-              <div class="categories" aria-label="任务类别">
-                <button type="button" data-group="merit" aria-pressed="true">政绩</button>
-                <button type="button" data-group="credit" aria-pressed="false">信誉</button>
-                <button type="button" data-group="ties" aria-pressed="false">人脉</button>
-                <button type="button" data-group="rest" aria-pressed="false">休养</button>
+            <section class="paper planner" aria-labelledby="tasks-title">
+              <div class="section-top planner-head">
+                <h2 id="tasks-title">常驻安排</h2>
+                <label class="duration">安排时长
+                  <select id="routine-duration">
+                    <option value="6">半年</option>
+                    <option value="12" selected>一年</option>
+                    <option value="24">两年</option>
+                  </select>
+                </label>
               </div>
-              <div id="tasks" class="task-grid"></div>
+              <div id="routine-list" class="routine-list"></div>
+              <div id="rest-controls" class="rest-controls"></div>
             </section>
+            <section class="paper" aria-labelledby="projects-title">
+              <h2 id="projects-title">重点项目</h2>
+              <div id="projects" class="task-grid"></div>
+            </section>
+            <details class="paper service-plans">
+              <summary>培训、交流与入党安排</summary>
+              <div id="services" class="task-grid"></div>
+            </details>
           </div>
           <aside class="stack" aria-label="表现与最近记录">
             <section class="paper" aria-labelledby="scores-title"><h2 id="scores-title">个人表现</h2><div id="scores" class="score-list"></div></section>
@@ -120,12 +139,26 @@
       <section id="dossier" hidden aria-label="履历与任用">
         <div class="desk-grid">
           <div class="stack">
-            <section class="paper"><h2>任用方向</h2><p class="muted explanation">到半年末，系统按所选方向和岗位窗口结算。</p><div id="targets" class="target-list"></div></section>
+            <section class="paper"><h2>任用方向</h2><p class="muted explanation">达到资格后，系统在所选岗位开放的窗口判定。</p><div id="targets" class="target-list"></div></section>
             <section class="paper"><h2>个人履历</h2><dl class="facts" id="career-facts"></dl><ol class="records" id="career-log"></ol></section>
           </div>
           <aside class="stack">
             <section class="paper"><h2>案情记录</h2><p class="muted explanation" id="risk-note"></p><ol class="records" id="incidents"></ol></section>
             <section class="paper" id="departure"><h2>离任</h2><div class="actions"></div><p class="fine" id="departure-note"></p></section>
+          </aside>
+        </div>
+      </section>
+
+      <section id="violations" hidden aria-label="违规操作">
+        <div class="desk-grid">
+          <section class="paper" aria-labelledby="violation-heading">
+            <h2 id="violation-heading">违规操作</h2>
+            <p class="muted explanation">每项在本任可用一次。确认后，立刻增加任内胜算和永久危险值。</p>
+            <div id="offense-list" class="task-grid"></div>
+          </section>
+          <aside class="paper" aria-labelledby="offense-heading">
+            <h2 id="offense-heading">任内胜算与危险</h2>
+            <div id="offense-summary" class="stack"></div>
           </aside>
         </div>
       </section>
@@ -148,20 +181,26 @@
     <noscript><p class="paper">请启用 JavaScript 以继续游戏。</p></noscript>
   </main>
 
-  <dialog class="dialog paper" id="task-dialog" aria-labelledby="decision-title">
-    <div class="section-top"><h2 id="decision-title"></h2><button class="icon-button" id="decision-close" type="button" aria-label="关闭任务">×</button></div>
-    <p id="decision-body" class="muted explanation"></p>
-    <div class="choices" id="decision-options"></div>
-  </dialog>
   <dialog class="dialog paper reveal" id="reveal-dialog" aria-labelledby="reveal-heading">
     <p class="overline" id="reveal-kind"></p>
     <h2 id="reveal-heading"></h2>
     <p class="reveal-chance" id="reveal-chance"></p>
     <div class="document" id="reveal-document">
-      <div class="seal" aria-hidden="true">启封</div>
-      <div id="reveal-result" hidden><h3 id="reveal-title" tabindex="-1"></h3><p id="reveal-detail"></p></div>
+      <div class="folder" aria-hidden="true">
+        <span class="folder-page folder-back"></span>
+        <span class="folder-page folder-middle"></span>
+        <div class="folder-page folder-front"><div class="seal" id="reveal-seal"></div></div>
+      </div>
+      <div class="confetti" id="reveal-confetti" aria-hidden="true"></div>
+      <div id="reveal-result" hidden>
+        <span class="result-stamp" id="result-stamp" aria-hidden="true"></span>
+        <h3 id="reveal-title" tabindex="-1"></h3><p id="reveal-detail"></p>
+      </div>
     </div>
-    <div class="actions"><button type="button" class="button primary" id="reveal-next">跳过动画</button></div>
+    <div class="actions spread reveal-footer">
+      <p id="reveal-caption" role="status"></p>
+      <button type="button" class="button primary" id="reveal-next">跳过动画</button>
+    </div>
   </dialog>
   <dialog class="dialog paper" id="confirm-dialog" aria-labelledby="confirm-heading">
     <form method="dialog">
