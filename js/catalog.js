@@ -20,9 +20,9 @@ const arcadeGames = [
     category: "simulation",
     title: "进步模拟器",
     summary: "考进来，安排工作，争取任用机会",
-    description: "按模拟考试成绩入职。安排半年、一年或两年的工作，办成重点项目，再带着成果争取任用。走捷径会把风险留在履历里。",
-    saveKey: "progress-v3",
-    priorSaveKey: "progress-v2",
+    description: "按模拟考试成绩入职，安排工作，处理任期里遇到的大事，再带着成果争取任用。走捷径会把风险留在履历里。",
+    saveKey: "progress-v4",
+    priorSaveKeys: ["progress-v3", "progress-v2"],
     entry: "games/progress/index.html",
   },
 ];

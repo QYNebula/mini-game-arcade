@@ -8,7 +8,7 @@ const ProgressContent = (() => {
   const channels = { ordinary: "普通招录", rural: "常规选调", targeted: "定向选调" };
   const scopes = ["基层", "县域", "市级", "省级", "中央"];
   const categories = { merit: "政绩", credit: "信誉", ties: "人脉", rest: "休养" };
-  const limits = { merit: 40, credit: 30, ties: 30 };
+  const limits = { merit: 30, credit: 30, ties: 30 };
   const people = ["温荻", "周映岚", "陈闻安", "何既明", "叶穗", "林泊羽", "白梦棠", "郑南舟", "许观澜"];
 
   const roles = {
@@ -84,6 +84,21 @@ const ProgressContent = (() => {
     return position(post.role, (post.region + 1) % regions.length, post.provinceIndex);
   }
 
+  const lowerRoles = {
+    townHead: "deputyTown", bureauHead: "deputyBureau",
+    deputyCounty: "bureauHead", countyCommittee: "townHead",
+    countyHead: "deputyCounty", countySecretary: "deputyCounty",
+    deputyCity: "countyHead", cityCommittee: "countyHead",
+    cityHead: "deputyCity", citySecretary: "deputyCity",
+    deputyProvince: "cityHead", provinceCommittee: "cityHead",
+    provinceHead: "deputyProvince", provinceSecretary: "deputyProvince",
+  };
+
+  function lowerPost(post) {
+    const role = lowerRoles[post.role];
+    return role ? position(role, post.region, post.provinceIndex) : business(post.region, 0, post.role === "deputyTown");
+  }
+
   const pick = (title, months, effect = {}, note = "") => ({ title, months, effect, note });
   const routine = {
     merit: { title: "推进重点业务", body: "持续交付本职工作里的阶段成果。" },
@@ -149,11 +164,11 @@ const ProgressContent = (() => {
 
   const offenses = [
     { id: "improper-support", title: "接受违规引荐", body: "一位同僚提出替你争取任用支持，条件是你答应一项不合规的请托。",
-      weight: 0.39, risk: 2, severity: 2 },
+      months: 2, boost: 7, risk: 2, severity: 2 },
     { id: "false-record", title: "以失实成果争取任用", body: "有人提议把尚未办结的成果列入考察材料，好赶上下一次任用。",
-      weight: 0.57, risk: 3, severity: 3 },
+      months: 3, boost: 12, risk: 5, severity: 3 },
     { id: "improper-exchange", title: "接受违规利益交换", body: "一个合作方愿意承诺更直接的支持，也要求你为一项本不应获批的安排背书。",
-      weight: 0.8, risk: 5, severity: 4 },
+      months: 4, boost: 17, risk: 8, severity: 4 },
   ];
 
   const temptations = [
@@ -253,5 +268,5 @@ const ProgressContent = (() => {
   ];
 
   return { provinces, regions, channels, scopes, categories, limits, people, roles, procedures,
-    business, deployment, allocation, nextPositions, lateral, routine, projects, offenses, temptations, events, pick };
+    business, deployment, allocation, nextPositions, lateral, lowerPost, routine, projects, offenses, temptations, events, pick };
 })();

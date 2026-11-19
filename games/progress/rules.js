@@ -41,7 +41,8 @@ const ProgressRules = (() => {
   function monthsIn(state, field, match) {
     return state.stints.reduce((total, stint, index) => {
       if (!match(stint[field])) return total;
-      return total + (state.stints[index + 1]?.from ?? state.month) - stint.from;
+      const begin = Math.max(stint.from, state.reappointmentSince || 0);
+      return total + Math.max(0, (state.stints[index + 1]?.from ?? state.month) - begin);
     }, 0);
   }
 
@@ -71,17 +72,19 @@ const ProgressRules = (() => {
       (state.post.level >= 3 || state.rank >= 6 && state.rank <= 9) && state.month >= cohortRetirement(state.birth, 55);
   }
 
-  function numeric(label, have, need, source) {
+  function numeric(label, have, need, source, countingFrom = null) {
     const ok = have >= need;
-    return { label, ok, detail: ok ? duration(have) : "还差 " + duration(need - have).trim(), source };
+    return { label, ok, detail: ok ? duration(have) : "还差 " + duration(need - have), source,
+      due: !ok && countingFrom !== null ? countingFrom + need - have : null };
   }
 
   function requirement(label, ok, detail, source) { return { label, ok, detail, source }; }
 
   function workGate(state) {
     const requirements = [];
-    if (!state.formal) requirements.push(numeric("新录用公务员试用期 1 年", state.month, 12, "service"));
-    if (state.penalty > state.month) requirements.push(requirement("政务处分期内限制晋升", false, "影响期还剩 " + duration(state.penalty - state.month), "discipline"));
+    if (!state.formal) requirements.push(numeric("新录用公务员试用期 1 年", state.month, 12, "service", state.month));
+    if (state.penalty > state.month) requirements.push({ ...requirement("政务处分期内限制晋升", false,
+      "影响期还剩 " + duration(state.penalty - state.month), "discipline"), due: state.penalty });
     return requirements;
   }
 
@@ -89,22 +92,25 @@ const ProgressRules = (() => {
     const list = workGate(state);
     const level = post.level;
     if (level === 1) {
-      list.push(numeric("一级科员及相当层次职级任职满 3 年", monthsIn(state, "rank", (rank) => rank >= 1), 36, "office"));
+      list.push(numeric("一级科员及相当层次职级任职满 3 年", monthsIn(state, "rank", (rank) => rank >= 1), 36, "office",
+        !state.formal ? 12 : state.rank >= 1 ? state.month : null));
     } else if (level === 2) {
       const months = state.stints.reduce((total, stint, index) => {
         if (stint.level !== 1 && stint.rank < 2) return total;
-        return total + (state.stints[index + 1]?.from ?? state.month) - stint.from;
+        return total + Math.max(0, (state.stints[index + 1]?.from ?? state.month) - Math.max(stint.from, state.reappointmentSince || 0));
       }, 0);
-      list.push(numeric("乡科级副职或规定的职级经历累计满 2 年", months, 24, "office"));
+      list.push(numeric("乡科级副职或规定的职级经历累计满 2 年", months, 24, "office",
+        state.post.level === 1 || state.rank >= 2 ? state.month : null));
     } else {
       const need = level % 2 ? 36 : 24;
-      list.push(numeric(levels[level - 1] + "任职满 " + need / 12 + " 年", tenure(state, level - 1), need, "appointment"));
+      list.push(numeric(levels[level - 1] + "任职满 " + need / 12 + " 年", tenure(state, level - 1), need, "appointment",
+        state.post.level === level - 1 ? state.month : null));
       const positions = new Set(state.stints.filter((stint, index) => stint.level === level - 1 &&
-        (state.stints[index + 1]?.from ?? state.month) > stint.from).map((stint) => stint.position));
+        (state.stints[index + 1]?.from ?? state.month) > Math.max(stint.from, state.reappointmentSince || 0)).map((stint) => stint.position));
       list.push(requirement("一般具备下一级两个职位的经历", positions.size >= 2, positions.size + " / 2 个职位", "appointment"));
       if (level <= 4) {
-        list.push(numeric("工龄满 5 年", state.month, 60, "appointment"));
-        list.push(numeric("基层工作经历满 2 年", state.localMonths, 24, "appointment"));
+        list.push(numeric("工龄满 5 年", state.month, 60, "appointment", state.month));
+        list.push(numeric("基层工作经历满 2 年", state.localMonths, 24, "appointment", state.post.local ? state.month : null));
       }
       list.push(requirement(level >= 5 ? "一般具备本科及以上学历" : "一般具备专科及以上学历", true, degrees[state.degree].label, "appointment"));
       const seniorTraining = state.post.level >= 3 || state.rank >= 6;
@@ -120,7 +126,7 @@ const ProgressRules = (() => {
     }
     if (post.path === "party") {
       const need = level < 5 ? 36 : 60;
-      list.push(numeric("拟任地方党委岗位党龄满 " + need / 12 + " 年", partyMonths(state), need, "party"));
+      list.push(partyGate(state, "拟任地方党委岗位党龄满 " + need / 12 + " 年", need));
     }
     return list;
   }
@@ -144,7 +150,7 @@ const ProgressRules = (() => {
     const byOffice = alternate ? tenure(state, alternate) : 0;
     const byRank = state.rank === target - 1 ? rankTime(state, state.rank) : 0;
     const route = alternate ? ranks[target - 1] + "或" + levels[alternate] : ranks[target - 1];
-    list.push(numeric(route + "达到规定任职年限", Math.max(byRank, byOffice), rankMinimum[target], "rank"));
+    list.push(numeric(route + "达到规定任职年限", Math.max(byRank, byOffice), rankMinimum[target], "rank", state.month));
     list.push(requirement("拟晋升职级在机关设置范围内", target <= state.post.rankCap, "本机关可设至" + ranks[state.post.rankCap], "rank"));
     return list;
   }
@@ -160,9 +166,15 @@ const ProgressRules = (() => {
   }
 
   function partyMonths(state) { return state.party.since === null ? 0 : state.month - state.party.since; }
+  function partyGate(state, label, need) {
+    const { since, stage, ends } = state.party;
+    const countingFrom = since !== null ? state.month : stage === 1 ? ends + 12 : stage === 2 ? ends : null;
+    return numeric(label, partyMonths(state), need, "party", countingFrom);
+  }
+
   function centralGate(state, target) {
     const list = workGate(state);
-    list.push(numeric("中央委员会委员党龄满 5 年", partyMonths(state), 60, "party"));
+    list.push(partyGate(state, "中央委员会委员党龄满 5 年", 60));
     if (target === 4) list.push(requirement("总书记从中央政治局常委中产生", state.central === 3, "现任" + (central[state.central] || "地方职务"), "party"));
     return list;
   }

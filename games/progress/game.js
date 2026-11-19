@@ -1,7 +1,7 @@
 (() => {
-  const id = "progress-v3";
-  const priorId = "progress-v2";
-  const version = 3;
+  const id = "progress-v4";
+  const priorIds = ["progress-v3", "progress-v2"];
+  const version = 4;
   const R = ProgressRules;
   const C = ProgressContent;
   const E = ProgressCareer;
@@ -167,6 +167,7 @@
   const signed = (value) => (value > 0 ? "+" : "−") + Math.abs(value);
 
   function qualification(review) {
+    if (state.case) return "核查中 · 暂缓任用";
     if (!review.wanted) return "暂无方向";
     if (!review.qualified) return "资格未满足";
     if (state.health < 20) return "病休 · 暂缓任用";
@@ -198,15 +199,23 @@
     else apply();
   }
 
-  function renderAgenda() {
+  function agendaField(label, headline, detail) {
+    const field = element("div", "agenda-field");
+    field.append(element("span", "", label), element("strong", "", headline));
+    if (detail) field.append(element("small", "", detail));
+    return field;
+  }
+
+  function renderAgenda(review) {
     const plan = E.planInfo(state);
-    const heading = element("h2", "", plan?.title || (state.health < 20 ? "请先安排病休" : "继续履职"));
-    heading.id = "agenda-title";
+    const investigation = E.caseInfo(state);
     const status = byId("plan-status");
+    const title = investigation?.label || plan?.title || (state.health < 20 ? "请先安排病休" : "继续履职");
+    const heading = element("h2", "", title);
+    heading.id = "agenda-title";
     status.replaceChildren(heading);
-    if (plan) {
-      const date = plan.due <= state.month ? plan.label + "待处理" : plan.label + " · " + R.date(plan.due);
-      status.append(element("p", "", date + (plan.end && plan.end !== plan.due ? " · 计划至 " + R.date(plan.end) : "")));
+    status.append(element("p", "", "现职已满 " + R.duration(state.month - state.postSince)));
+    if (plan && !investigation) {
       const until = plan.end ?? plan.due;
       if (until > plan.from) {
         const meter = element("progress", "meter");
@@ -215,29 +224,68 @@
         meter.value = state.month - plan.from;
         status.append(meter);
       }
-    } else {
-      status.append(element("p", "", state.health < 20 ? "病休每月恢复 10 点健康。" : "可排一项工作，或直接推进。一次最多推进两年。"));
     }
-    const advance = byId("advance");
-    advance.disabled = !E.canAdvance(state);
+    const needs = review.wanted?.needs.filter((item) => !item.ok) || [];
+    const pending = needs.find((item) => !Number.isInteger(item.due));
+    const inspection = E.nextInspection(state);
+    const retirement = E.retirement(state).month;
+    const entries = [];
+    if (investigation) entries.push({ month: investigation.due, title: investigation.label, type: "case" });
+    if (plan && !investigation) entries.push({ month: plan.due, title: plan.label, type: "plan" });
+    const follow = E.nextFollowUp(state);
+    if (follow) entries.push({ month: Math.max(state.month, follow.due), title: "后续事项 · " + follow.topic, type: "event" });
+    for (const item of needs) if (Number.isInteger(item.due)) entries.push({ month: item.due, title: item.label, type: "gate" });
+    if (state.placement?.active && review.wanted?.kind !== "rank") {
+      entries.push({ month: state.placement.end, title: "结束基层锻炼", type: "gate" });
+    }
+    if (inspection <= retirement) entries.push({ month: inspection, title: "例行纪检", type: "audit" });
+    if (review.expected !== null && state.goal !== "stay") {
+      entries.push({ month: review.expected, title: pending ? "任用窗口 · 须补齐资格" : "预计任用窗口", type: "office" });
+    }
+    entries.push({ month: Math.max(state.month, retirement), title: "到龄", type: "retirement" });
+    const priority = ["plan", "case", "gate", "audit", "office", "event", "retirement"];
+    entries.sort((a, b) => a.month - b.month || priority.indexOf(a.type) - priority.indexOf(b.type));
+
+    const next = entries.find((item) => item.type !== "plan");
+    const due = plan && !investigation ? R.date(plan.due) : investigation ? R.date(investigation.due) : "可安排工作";
+    const work = investigation ? "在办安排暂停" : plan ? plan.label + (plan.end && plan.end !== plan.due ? " · 至 " + R.date(plan.end) : "") :
+      state.health < 20 ? "病休每月恢复 10 点" : "一次最多推进两年";
+    const gate = review.yearsReady != null ? R.date(review.yearsReady) : qualification(review);
+    const gateDetail = pending ? pending.detail + " · " + pending.label : review.yearsReady != null ?
+      "预计补齐年限 · 还差 " + R.duration(review.yearsReady - state.month) : review.wanted?.title || "";
+    byId("agenda-strip").replaceChildren(agendaField(investigation ? "案件下一步" : "手头安排", due, work),
+      agendaField("任用资格", investigation ? qualification(review) : gate, gateDetail),
+      agendaField("下一关键节点", R.date(next.month), next.title));
+    byId("agenda-dates").replaceChildren(...entries.map((item) => {
+      const row = element("li", item.type);
+      row.append(element("time", "", R.date(item.month)), element("strong", "", item.title));
+      return row;
+    }));
+    const qualifications = byId("agenda-qualifications");
+    qualifications.replaceChildren(...(needs.length ? needs.map((item) =>
+      element("p", "fine", item.label + " · " + item.detail)) : []),
+    button("查看任用方向与依据", () => activate("dossier")));
+    text("advance-label", investigation ? "推进案件" : "推进时间");
+    byId("advance").disabled = !E.canAdvance(state);
     byId("cancel-plan").hidden = !plan || !E.canArrange(state);
   }
 
-  function effectLine(option, project = false) {
-    const when = option.months ? (project ? R.date(state.month + option.months) + " 交付" : R.duration(option.months)) : "当场处理";
+  function effectLine(option) {
+    const when = option.months ? R.date(state.month + option.months) + " 办结" : "当场处理";
     const tags = [when];
     for (const [key, label] of [...Object.entries(C.categories).filter(([key]) => key !== "rest"), ["health", "健康"]]) {
       if (option.effect[key]) tags.push(label + " " + signed(option.effect[key]));
     }
-    if (project && option.effect.health < -15) tags.push("健康至少 60");
+    if (option.effect.health < -15) tags.push("健康至少 60");
+    if (option.effect.follow) tags.push("有后续安排");
     return element("span", "effect-line", tags.join(" · "));
   }
 
-  function choiceButton(option, index, event) {
+  function choiceButton(option, index) {
     const control = element("button", "choice");
     control.type = "button";
     control.disabled = !E.allowed(state, option);
-    control.append(element("strong", "", option.title), effectLine(option, event.kind === "project"));
+    control.append(element("strong", "", option.title), effectLine(option));
     if (option.note) control.append(element("span", "effect-line", option.note));
     control.addEventListener("click", () => doAction(() => E.chooseEvent(state, index)));
     return control;
@@ -250,28 +298,34 @@
     if (!event) return;
     const options = element("div", "choices");
     const review = event.kind === "review";
-    const label = review ? "任用前" : event.kind === "project" ? "项目取舍" : "到期待办";
+    const label = review ? "任用前" : event.kind === "project" || event.kind === "story" ? "重要事项" : "后续事项";
     const heading = element("h2", "", review ? event.offer.title : event.title);
     heading.tabIndex = -1;
     if (review) {
-      const current = E.assessTarget(state);
       const offer = event.offer;
-      const effects = element("p", "danger-effect", percent(current.probability) + " → " + percent(current.probability + offer.bonus) +
-        " · 永久危险 +" + offer.risk + " 个百分点");
+      const effects = element("p", "danger-effect", R.duration(offer.months) + " · 完成后胜算 +" + offer.boost +
+        " 个百分点 · 确认时永久危险 +" + offer.risk + " 个百分点");
       const actions = element("div", "actions spread");
-      actions.append(button("拒绝，进入结算", () => doAction(() => E.resolveReview(state, false))),
-        button("接受交换", () => doAction(() => E.resolveReview(state, true)), { style: "primary" }));
-      options.append(effects, actions);
+      actions.append(button("拒绝，继续原安排", () => doAction(() => E.resolveReview(state, false))),
+        button("接受并排入日程", () => doAction(() => E.resolveReview(state, true)),
+          { style: "primary", disabled: E.workTime(state) < offer.months }));
+      options.append(effects);
+      if (state.plan) options.append(element("p", "fine", "接受会替换当前安排，已到账成果留在履历中。"));
+      options.append(actions);
     } else {
-      options.append(...event.options.map((option, index) => choiceButton(option, index, event)));
+      options.append(...event.options.map(choiceButton));
       if (event.kind === "project") options.append(button("移交项目", () =>
         confirm("移交这个项目？", "前期工作将一并交接，当前安排结束。", () => doAction(() => E.cancelPlan(state)))));
     }
     root.replaceChildren(element("p", "overline", R.date(event.month) + " · " + label), heading,
       element("p", "muted", review ? event.offer.body : event.body));
-    if (event.kind === "project" && state.goal !== "stay") {
-      const current = E.assessTarget(state);
-      root.append(element("p", "fine", nextDate(current.next) + " · " + qualification(current)));
+    const current = E.assessTarget(state);
+    if (review) {
+      root.append(element("p", "fine", "预计办结于 " + R.date(state.month + event.offer.months) +
+        (event.legacy ? " · 眼前的窗口按已到账成果结算" : " · 本次窗口 " + R.date(event.due))));
+    } else if (state.plan && event.kind !== "project") {
+      root.append(element("p", "fine", "耗时处理会让原安排顺延。" +
+        (current.expected !== null && state.goal !== "stay" ? " 预计窗口 " + R.date(current.expected) + "。" : "")));
     }
     root.append(options);
   }
@@ -324,10 +378,6 @@
     renderRoutine();
     renderRest();
     const blocked = !E.canArrange(state);
-    const projects = E.projects(state);
-    byId("projects").replaceChildren(...(projects.length ? projects.map((project) => card(project.title, project.body,
-      "6 个月后定方案 · 最快 9 个月交付", button("安排项目", () => arrange(() => E.startProject(state, project.id)),
-        { disabled: blocked || E.workTime(state) < 9 }))) : [element("p", "fine", "本岗重点项目已办结，可继续安排常驻工作。")]));
     byId("services").replaceChildren(...E.services(state).map((item) => card(item.title, item.body, R.duration(item.option.months),
       button("安排", () => arrange(() => E.startService(state, item.id)),
         { disabled: blocked || E.workTime(state) < item.option.months }))));
@@ -365,37 +415,33 @@
   }
 
   function renderDesk() {
-    renderAgenda();
+    renderAgenda(E.assessTarget(state));
     renderEvent();
     renderPlans();
     byId("scores").replaceChildren(...Object.entries(C.limits).map(([key, value]) => scoreMeter(C.categories[key], state.score[key], value)));
-    const current = E.assessTarget(state);
-    const requirement = current.wanted?.needs.find((item) => !item.ok);
-    const detail = state.goal === "stay" ? "当前选择留任。" : requirement ?
-      requirement.label + " · " + requirement.detail : qualification(current);
-    const currentStatus = nextDate(current.next) + "。" + detail;
-    byId("notice").replaceChildren(notice(current.wanted?.title || "继续任职", currentStatus),
-      notice("下次纪检检查", R.date(E.nextInspection(state)) + " · 当前危险 " + E.danger(state) + "%"),
-      button("查看任用与资格", () => activate("dossier")));
     timeline("journal", state.log.slice(-5).reverse());
   }
 
   function renderViolations() {
     const review = E.assessTarget(state);
-    byId("offense-list").replaceChildren(...E.offenses(state).map((offer) => {
-      const detail = offer.used ? "本任已使用" : !offer.bonus ? "本任加成已满" : !offer.risk ? "危险值已达 100%" :
-        "任内胜算 +" + offer.bonus + " 个百分点 · 永久危险 +" + offer.risk + " 个百分点";
+    byId("offense-list").replaceChildren(...E.offenses.map((offer) => {
+      const detail = R.duration(offer.months) + " · 完成本任胜算 +" + offer.boost + " 个百分点 · 永久危险 +" + offer.risk + " 个百分点";
       const action = button("查看代价", () => confirm(offer.title,
-        "参考胜算由 " + percent(review.probability) + " 提到 " + percent(review.probability + offer.bonus) +
-        "，永久危险增加 " + offer.risk + " 个百分点。任用生效或调任时结清加成。",
-        () => doAction(() => E.offend(state, offer.id))),
-      { disabled: offer.used || !offer.bonus || !offer.risk || Boolean(state.review) });
+        "预计 " + R.date(state.month + offer.months) + " 兑现 +" + offer.boost + " 个百分点。确认时永久危险 +" +
+        offer.risk + " 个百分点。" + (state.plan ? "当前安排将被替换。" : ""),
+        () => doAction(() => {
+          if (!E.offend(state, offer.id)) return false;
+          view = "desk";
+          return true;
+        }, true)),
+      { disabled: !E.canArrange(state) || E.workTime(state) < offer.months });
       return card(offer.title, offer.body, detail, action);
     }));
     byId("offense-summary").replaceChildren(
       notice("合规表现", percent(review.legitimate)),
-      notice("任内加成", "+" + review.boost + " / " + review.boostLimit + " 个百分点"),
-      notice("累计危险", E.danger(state) + "% · 下次检查 " + R.date(E.nextInspection(state))));
+      notice("已到账的任内加成", "+" + review.boost + " 个百分点"),
+      notice("累计危险 " + percent(E.danger(state)), "下次检查 " + R.date(E.nextInspection(state)) +
+        " · 查出概率 " + percent(Math.min(100, E.danger(state)))));
   }
 
   function targetCard(option, active) {
@@ -404,17 +450,18 @@
     const copy = element("div");
     copy.append(element("h3", "", option.title), element("p", "muted", option.procedure + "。"));
     const choose = button(active ? "当前方向" : "选为方向", () => doAction(() => E.setGoal(state, option.id)), {
-      style: active ? "primary" : "secondary", disabled: active || Boolean(state.review),
+      style: active ? "primary" : "secondary", disabled: active || Boolean(state.review || state.case),
     });
     head.append(copy, choose);
     const current = E.assessTarget(state, option);
-    const detail = element("p", "fine", "参考胜算 " + percent(current.probability) + " · " + qualification(current) + " · " + nextDate(current.next));
+    const detail = element("p", "fine", "参考胜算 " + percent(current.probability) + " · " + qualification(current) + " · " +
+      nextDate(current.expected) + "。本轮合规上限 " + percent(current.cap) + "，本层最终 " + percent(current.finalCap) + "。");
     const rules = element("details", "disclosure");
     rules.append(element("summary", "", "资格与出处"));
     const list = element("ul", "requirements");
     for (const item of option.needs) {
       const li = element("li");
-      li.append(element("strong", "", item.label), element("p", item.ok ? "muted" : "alert", item.detail), source(item.source));
+      li.append(element("strong", "", item.label), element("p", item.ok ? "muted" : "alert", item.detail + (item.due != null ? " · 预计 " + R.date(item.due) : "")), source(item.source));
       list.append(li);
     }
     rules.append(list);
@@ -435,7 +482,7 @@
   function renderDossier() {
     const target = E.target(state);
     const rows = E.opportunities(state).map((option) => targetCard(option, target?.id === option.id));
-    rows.push(button(!target ? "当前方向 · 留任" : "留任，暂不争取晋升", () => doAction(() => E.setGoal(state, "stay")), { disabled: !target || Boolean(state.review) }));
+    rows.push(button(!target ? "当前方向 · 留任" : "留任，暂不争取晋升", () => doAction(() => E.setGoal(state, "stay")), { disabled: !target || Boolean(state.review || state.case) }));
     byId("targets").replaceChildren(...rows);
     const retire = E.retirement(state);
     byId("career-facts").replaceChildren(datum("工龄", R.duration(state.month)), datum("基层经历", R.duration(state.localMonths)),
@@ -446,6 +493,11 @@
     if (retire.source) byId("career-facts").lastElementChild.after(datum("退休依据", source(retire.source)));
     timeline("career-log", state.log.filter((item) => item.kind === "office").slice(-12).reverse());
     text("risk-note", "终身累计 " + E.danger(state) + "% · 已检查 " + state.checks + " 次 · " + R.date(E.nextInspection(state)) + "再检查。");
+    const investigation = E.caseInfo(state);
+    const caseRecord = byId("case-record");
+    caseRecord.replaceChildren(...state.cases.slice(-3).reverse().map((item) => notice(item.title, R.date(item.closed) + "。" + item.detail)));
+    if (investigation) caseRecord.prepend(notice(investigation.label,
+      R.date(investigation.due) + " · " + (investigation.proposedLabel || "调查待结")));
     const incidents = [...state.incidents].reverse().map((item) => ({
       month: item.month, kind: "audit", title: item.title,
       detail: item.choice + " · +" + item.risk + " 个百分点 · " + (item.resolved ? "已处理，保留记录" : "待查"),
@@ -459,7 +511,7 @@
       confirm("办理退休？", "将按本人申请和适用的退休条件办结生涯。", () => doAction(() => E.leave(state, true), true)), { disabled: !E.canArrange(state) }));
     byId("departure").querySelector(".actions").replaceChildren(...actions);
     text("departure-note", state.month < 60 ? "规定服务期还剩 " + R.duration(60 - state.month) + "。" :
-      state.penalty > state.month ? "当前仍在本局处分影响期。" : E.currentEvent(state) ? "先处理当前待办事件。" : "");
+      state.case ? "目前正在接受审查。" : state.penalty > state.month ? "当前仍在本局处分影响期。" : E.currentEvent(state) ? "先处理当前待办事件。" : "");
   }
 
   function renderHandbook() {
@@ -487,7 +539,7 @@
     text("ending-title", ending.title);
     text("ending-detail", ending.detail);
     byId("ending-facts").replaceChildren(datum("最后任职", E.title(state)), datum("在岗时间", R.duration(ending.month)),
-      datum("推进的事项", state.projects + " 件"), datum("终身危险值", E.danger(state) + "%"),
+      datum("处理的重要事项", state.projects + " 件"), datum("终身危险值", E.danger(state) + "%"),
       datum("任用判定", state.attempts + " 次"), datum("例行检查", state.checks + " 次"));
     const highlights = state.log.filter((item) => item.kind === "audit" || item.kind === "office" &&
       ["任用生效", "职级晋升", "中央任用生效", "交流任职"].includes(item.title)).slice(-8);
@@ -500,15 +552,16 @@
   }
 
   function confetti() {
-    const colors = ["#b63934", "#e6a637", "#edcf75", "#f4a583", "#a45459", "#abc097"];
-    return Array.from({ length: 30 }, (_, index) => {
+    const colors = ["#f9db79", "#fff0c7", "#ef704f", "#fbab5d", "#c85b70", "#d9e4bc"];
+    return Array.from({ length: 54 }, (_, index) => {
       const particle = element("i");
-      const angle = 2 * Math.PI * index / 30;
-      const distance = 75 + (index * 29) % 140;
-      particle.style.setProperty("--x", Math.round(distance * Math.cos(angle)) + "px");
-      particle.style.setProperty("--y", Math.round(distance * Math.sin(angle)) + "px");
-      particle.style.setProperty("--spin", (index % 2 ? -1 : 1) * (240 + index * 22) + "deg");
+      const direction = index % 2 ? 1 : -1;
+      particle.style.setProperty("--side", direction > 0 ? "4%" : "96%");
+      particle.style.setProperty("--x", direction * (18 + (index * 13) % 58) + "vw");
+      particle.style.setProperty("--y", (-16 - (index * 11) % 59) + "vh");
+      particle.style.setProperty("--spin", direction * (200 + index * 19) + "deg");
       particle.style.setProperty("--color", colors[index % colors.length]);
+      particle.style.setProperty("--lag", index % 7 * 27 + "ms");
       return particle;
     });
   }
@@ -518,19 +571,31 @@
     clearCeremony();
     revealed = true;
     const dialog = byId("reveal-dialog");
-    const audit = revealItem.kind === "audit";
+    const audit = revealItem.kind !== "promotion";
     const success = !audit && revealItem.hit;
     dialog.classList.remove("playing");
     dialog.classList.add("open", audit ? (revealItem.hit ? "audit-hit" : "audit-clear") : success ? "success" : "miss");
     if (skip) dialog.classList.add("instant");
     if (success && !skip) byId("reveal-confetti").replaceChildren(...confetti());
-    text("result-stamp", audit ? (revealItem.hit ? "核查结论" : "核对归档") : success ? "任命生效" : "本轮结束");
+    text("result-stamp", revealItem.kind === "case" ? "案件进展" :
+      audit ? (revealItem.hit ? "核查结论" : "核对归档") : success ? "任用生效" : "本轮结束");
     byId("reveal-result").hidden = false;
     text("reveal-title", revealItem.title);
     text("reveal-detail", revealItem.detail);
     text("reveal-caption", "");
     text("reveal-next", "继续");
     byId("reveal-title").focus({ preventScroll: true });
+  }
+
+  function showScan(next) {
+    const entries = next.evidence?.length ? next.evidence : state.incidents.slice(-3);
+    const list = byId("scan-records");
+    list.replaceChildren(...entries.map((item) => {
+      const row = element("li");
+      row.append(element("time", "", R.date(item.month)), element("span", "", item.title));
+      return row;
+    }));
+    if (!entries.length) list.append(element("li", "", "在任履历与检查记录"));
   }
 
   function renderReveal() {
@@ -546,17 +611,20 @@
     clearCeremony();
     revealItem = next;
     revealed = false;
-    const audit = next.kind === "audit";
-    const duration = next.major || !audit && R.central.includes(next.subject) ? 6200 : 5000;
-    const steps = audit ? ["调阅历年案卷", "核对相关记录", "检查结果即将公布"] : ["任用材料送审", "复核考察和推荐记录", "任用结果即将公布"];
-    dialog.className = "dialog paper reveal" + (audit ? " audit" : "");
+    const audit = next.kind !== "promotion";
+    const duration = next.kind === "case" ? 3400 : next.major || !audit && R.central.includes(next.subject) ? 6300 : 5100;
+    const steps = audit ? ["调阅历年记录", "逐项核对案情", "等待公布结论"] : ["任用演出即将开始", "本轮人选进入公布环节", "名单即将揭晓"];
+    dialog.className = "reveal" + (audit ? " audit" : "");
     dialog.style.setProperty("--suspense", duration + "ms");
-    text("reveal-kind", R.date(next.month) + " · " + (audit ? "纪检" : "任用"));
+    dialog.dataset.beat = "0";
+    text("reveal-kind", R.date(next.month) + " · " + (next.kind === "case" ? "案件进展" : audit ? "纪检监察" : "任用"));
     text("reveal-heading", next.subject);
-    text("reveal-chance", (audit ? "本轮危险 " : "本轮胜算 ") + percent(next.chance));
-    text("reveal-seal", audit ? "纪检案卷" : "任用文件");
+    const odds = next.rescue ? "人脉判定 · 降级 " + percent(next.rescue.demote) + " · 免处分 " + percent(next.rescue.exempt) :
+      Number.isFinite(next.chance) ? (audit ? "查出概率 " : "本轮胜算 ") + percent(next.chance) : "";
+    text("reveal-chance", odds);
     text("reveal-next", "跳过动画");
     text("reveal-caption", steps[0]);
+    if (audit) showScan(next);
     byId("reveal-result").hidden = true;
     byId("reveal-confetti").replaceChildren();
     if (!dialog.open) dialog.showModal();
@@ -564,11 +632,11 @@
       openReveal(true);
       return;
     }
-    void byId("reveal-document").offsetWidth;
+    void dialog.offsetWidth;
     dialog.classList.add("playing");
     timers = [
-      setTimeout(() => text("reveal-caption", steps[1]), duration * 0.32),
-      setTimeout(() => text("reveal-caption", steps[2]), duration * 0.74),
+      setTimeout(() => { text("reveal-caption", steps[1]); dialog.dataset.beat = "1"; }, duration * 0.36),
+      setTimeout(() => { text("reveal-caption", steps[2]); dialog.dataset.beat = "2"; }, duration * 0.76),
       setTimeout(openReveal, duration),
     ];
   }
@@ -662,9 +730,10 @@
   });
 
   const current = fresh ? null : arcadeSaves.read(id);
-  const prior = fresh || current ? null : arcadeSaves.read(priorId);
-  const record = current?.version === version ? current : prior?.version === 2 ? prior : null;
-  const career = record?.state?.phase === "career" ? (record === prior ? E.upgrade(record.state.data) : record.state.data) : null;
+  const prior = fresh || current ? null : priorIds.map((key) => arcadeSaves.read(key)).find((entry) => [2, 3].includes(entry?.version));
+  const record = current?.version === version ? current : prior;
+  const career = record?.state?.phase === "career" ? (record === prior ?
+    E.upgrade(record.state.data, record.version) : record.state.data) : null;
   if (E.valid(career)) {
     state = career;
     if (record === prior) save();

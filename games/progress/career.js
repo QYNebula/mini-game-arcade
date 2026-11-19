@@ -1,20 +1,23 @@
 const ProgressCareer = (() => {
   const R = ProgressRules;
   const C = ProgressContent;
+  const S = ProgressStories;
+  const stories = new Map(S.stories.map((story) => [story.id, story]));
   const projectIndex = new Map(C.projects.map((project) => [project.id, project]));
   const legacyEvents = new Map(C.events.map((event) => [event.id, event]));
-  const caps = { section: [72, 90], county: [58, 75], bureau: [46, 64], province: [36, 50], central: [26, 36], secretary: [9, 15] };
+  const caps = { section: [75, 90], county: [55, 75], bureau: [40, 60], province: [30, 50], central: [20, 35], secretary: [8, 15] };
   const endingTitles = { retired: "按期退休", steady: "留在岗位直至退休", resign: "辞去公职",
     dismissed: "开除公职", sentenced: "裁判生效 · 服刑", elected: "当选中央委员会总书记" };
   const durations = [6, 12, 24];
-  const routineGain = 4;
+  const routineGain = 9;
+  const rescueTable = [[15, 2], [22, 5], [28, 10]];
   const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
   const currentScope = (state) => state.central ? 4 : state.post.scope;
   const title = (state) => R.central[state.central] || state.post.title;
   const age = (state) => Math.floor((R.startYear * 12 + state.month - state.birth) / 12);
   const retirement = (state) => R.retirement(state);
   const totalScore = (state) => state.score.merit + state.score.credit + state.score.ties;
-  const danger = (state) => Math.min(100, state.incidents.reduce((sum, incident) => sum + incident.risk, 0));
+  const danger = (state) => state.incidents.reduce((sum, incident) => sum + incident.risk, 0);
   const nextInspection = (state) => (Math.floor(state.month / 48) + 1) * 48;
   const healthStatus = (state) => state.health < 20 ? "病休" : state.health < 60 ? "疲劳" : "正常";
 
@@ -37,7 +40,7 @@ const ProgressCareer = (() => {
   function newPosition(state) {
     if (state.plan) record(state, "work", "交接在办安排", "本岗已到账的成果纳入履历。");
     state.plan = null;
-    state.projectsDone = [];
+    state.waits = {};
     state.postSince = state.month;
     state.agencySince = state.month;
     state.term++;
@@ -63,10 +66,10 @@ const ProgressCareer = (() => {
       initialPost: allocation.post, post: allocation.post, postSince: 0, agencySince: 0, formal: false, rank: -1, rankSince: 0,
       placement: allocation.placement ? { ...allocation.placement, active: false, done: false } : null,
       central: 0, highest: 0, localMonths: 0, party: { since: profile.member ? -24 : null, stage: profile.member ? 3 : 0, ends: 0 },
-      penalty: 0, yearWork: 0, score: { merit: 0, credit: 0, ties: 0 }, health: 85,
+      penalty: 0, yearWork: 0, score: { merit: 6, credit: 6, ties: 6 }, health: 85,
       stints: [], assessments: [], training: [], incidents: [], followUps: [], pending: [], log: [], reveals: [],
       checks: 0, attempts: 0, projects: 0, goal: "", outcome: null,
-      term: 0, plan: null, projectsDone: [], review: null,
+      term: 0, plan: null, waits: {}, seen: [], review: null, case: null, cases: [], reappointmentSince: 0,
     };
     if (state.placement?.start === 0) {
       state.placement.active = true;
@@ -114,7 +117,8 @@ const ProgressCareer = (() => {
 
   function referenceTarget(state) {
     const options = opportunities(state);
-    return options.find((item) => item.id === state.goal) || options.find((item) => item.kind !== "rank") || options[0] || null;
+    const automatic = state.post.level === 0 && state.rank === 0 ? "rank" : "office";
+    return options.find((item) => item.id === state.goal) || options.find((item) => item.kind === automatic) || options[0] || null;
   }
 
   function target(state) {
@@ -130,28 +134,45 @@ const ProgressCareer = (() => {
     return (Math.floor(month / 6) + state.calendar + lane) % 7 !== 0;
   }
 
-  function windowDate(state, wanted) {
-    if (state.review?.target === wanted.id) return state.month;
-    const start = (Math.floor(state.month / 6) + 1) * 6;
+  function windowDate(state, wanted, first = state.month + 1) {
+    if (state.review?.legacy && state.review.target === wanted.id) return state.month;
+    const start = Math.max(6, Math.ceil(first / 6) * 6);
     for (let candidate = start; candidate <= start + 60 && candidate < retirement(state).month; candidate += 6) {
       if (availableWindow(state, wanted, candidate)) return candidate;
     }
     return null;
   }
 
+  function qualifiedFor(state, wanted) {
+    return !(state.placement?.active && wanted.kind !== "rank") && wanted.needs.every((condition) => condition.ok);
+  }
+
   function assessTarget(state, wanted = referenceTarget(state)) {
-    if (!wanted) return { wanted: null, qualified: false, probability: 0, legitimate: 0, boost: 0, boostLimit: 0, cap: 0, next: null };
-    const [cleanCap, cap] = caps[wanted.band];
-    const boostLimit = cap - cleanCap;
-    const termBonus = state.incidents.reduce((sum, item) => item.term === state.term && !item.resolved ? sum + item.boost : sum, 0);
-    const boost = Math.min(boostLimit, termBonus);
-    const legitimate = totalScore(state) / 100 * cleanCap;
-    const qualified = !(state.placement?.active && wanted.kind !== "rank") && wanted.needs.every((condition) => condition.ok);
-    return { wanted, qualified, legitimate, boost, boostLimit, cap, probability: legitimate + boost, next: windowDate(state, wanted) };
+    if (!wanted) return { wanted: null, qualified: false, probability: 0, legitimate: 0, boost: 0, cap: 0, next: null, expected: null };
+    const [firstCap, finalCap] = caps[wanted.band];
+    const waited = state.waits[wanted.id] || 0;
+    const cap = Math.min(finalCap, firstCap + Math.floor(waited / 12) * (wanted.band === "secretary" ? 2 : 3));
+    const boost = state.incidents.reduce((sum, item) =>
+      item.term === state.term && !item.resolved && item.finished !== false ? sum + item.boost : sum, 0);
+    const legitimate = totalScore(state) / 90 * cap;
+    const qualified = qualifiedFor(state, wanted);
+    const due = wanted.needs.filter((item) => !item.ok && item.due !== null && item.due !== undefined).map((item) => item.due);
+    if (state.placement?.active && wanted.kind !== "rank") due.push(state.placement.end);
+    const yearsReady = due.length ? Math.max(...due) : null;
+    const next = windowDate(state, wanted);
+    return { wanted, qualified, legitimate, boost, cap, finalCap, yearsReady, probability: legitimate + boost, next,
+      expected: yearsReady === null ? next : windowDate(state, wanted, Math.max(state.month + 1, yearsReady)) };
+  }
+
+  function countWaiting(state) {
+    if (!Object.keys(state.waits).length) return;
+    for (const wanted of opportunities(state)) {
+      if (Object.hasOwn(state.waits, wanted.id) && qualifiedFor(state, wanted)) state.waits[wanted.id]++;
+    }
   }
 
   function setGoal(state, id) {
-    if (state.outcome || state.reveals.length || state.review) return false;
+    if (state.outcome || state.reveals.length || state.review || state.case) return false;
     if (id !== "stay" && !opportunities(state).some((item) => item.id === id)) return false;
     state.goal = id;
     return true;
@@ -169,7 +190,9 @@ const ProgressCareer = (() => {
     if (wanted.kind === "office") {
       install(state, wanted.target, "任用生效");
     } else if (wanted.kind === "rank") {
+      if (state.plan?.type === "offense") state.plan = null;
       state.term++;
+      state.waits = {};
       state.rank = wanted.target;
       state.rankSince = state.month;
       noteStint(state);
@@ -184,91 +207,224 @@ const ProgressCareer = (() => {
     if (!state.outcome) inheritScore(state, wanted.kind === "rank" ? 0.8 : 0.62);
   }
 
-  function offenseOffer(state, offer) {
-    const review = assessTarget(state);
-    const used = state.incidents.some((item) => item.term === state.term && item.action === offer.id);
-    const bonus = Math.min(review.boostLimit - review.boost, Math.max(1, Math.round(review.boostLimit * offer.weight)));
-    const risk = Math.min(offer.risk, 100 - danger(state));
-    return { ...offer, bonus, risk, used };
-  }
-
-  function offenses(state) {
-    return C.offenses.map((offer) => offenseOffer(state, offer));
-  }
-
-  function applyOffense(state, offer) {
+  function startOffense(state, offer) {
+    if (workTime(state) < offer.months) return false;
+    const index = state.incidents.length;
     state.incidents.push({ title: offer.title, choice: offer.title, month: state.month, risk: offer.risk, severity: offer.severity,
-      action: offer.id, boost: offer.bonus, term: state.term, resolved: false });
-    record(state, "audit", offer.title, "任内胜算 +" + offer.bonus + " 个百分点 · 永久危险 +" + offer.risk + " 个百分点。");
+      action: offer.id, boost: offer.boost, term: state.term, finished: false, resolved: false });
+    state.plan = { type: "offense", title: offer.title, start: state.month, end: state.month + offer.months, incident: index };
+    record(state, "audit", offer.title, "永久危险 +" + offer.risk + " 个百分点。预计 " + R.date(state.plan.end) + " 兑现。");
+    return true;
   }
 
   function offend(state, id) {
-    if (state.outcome || state.reveals.length || state.review) return false;
-    const offer = offenses(state).find((item) => item.id === id);
-    if (!offer || offer.used || !offer.bonus || !offer.risk) return false;
-    applyOffense(state, offer);
-    return true;
+    const offer = C.offenses.find((item) => item.id === id);
+    return Boolean(offer && canArrange(state) && startOffense(state, offer));
+  }
+
+  const caseSteps = {
+    investigation: "监察调查", disposition: "拟处置复核", prosecution: "检察机关审查起诉", trial: "法院审理",
+  };
+  const dispositions = {
+    warning: "警告处分", demerit: "记过处分", demotion: "撤职后改任低岗", dismissal: "开除公职", prosecution: "移送检察机关",
+    exempt: "免予本轮处分", sentence: "法院判处实刑",
+  };
+
+  function caseInfo(state) {
+    const current = state.case;
+    if (!current) return null;
+    return { ...current, label: caseSteps[current.stage], proposedLabel: dispositions[current.proposed] };
+  }
+
+  function evidence(state, items) {
+    return items.slice(-4).map((index) => ({ month: state.incidents[index].month, title: state.incidents[index].title }));
   }
 
   function inspect(state) {
     state.checks++;
-    const chance = danger(state);
+    const chance = Math.min(100, danger(state));
     if (!chance) {
       record(state, "audit", "四年一次的例行检查", "当前履历的危险值为 0%。");
       return;
     }
     const hit = random(state) * 100 < chance;
-    const discovered = state.incidents.filter((item) => !item.resolved);
+    const items = state.incidents.flatMap((item, index) => item.resolved ? [] : [index]);
     let headline = "本轮未触发进一步核查";
     let detail = "记录继续进入下一轮例行检查。";
-    let major = false;
-    if (hit && !discovered.length) {
+    if (hit && !items.length) {
       headline = "核对既有处理记录";
-      detail = "本次核对了既有处分和处理记录。履历累计记载继续有效。";
-    } else if (hit) {
-      const gravity = discovered.reduce((sum, item) => sum + item.severity, 0);
-      for (const item of discovered) {
-        item.resolved = true;
-        item.checkedAt = state.month;
-        if (item.gains) {
-          for (const key of Object.keys(C.limits)) state.score[key] = Math.max(0, state.score[key] - item.gains[key]);
-        }
-      }
-      major = gravity >= 5;
-      if (gravity >= 7) {
-        headline = "职务犯罪案件生效判决";
-        detail = "监察调查后移送检察机关审查起诉，最终由法院作出有罪判决并判处实刑。";
-        finish(state, "sentenced", detail);
-      } else if (gravity >= 5) {
-        headline = "开除公职";
-        detail = "本轮核查查实多项问题，处分决定终止了这段任职经历。";
-        finish(state, "dismissed", detail);
-      } else {
-        const months = gravity >= 3 ? 12 : 6;
-        state.penalty = Math.max(state.penalty, state.month + months);
-        state.score.credit = Math.max(0, state.score.credit - gravity * 2);
-        headline = gravity >= 3 ? "记过处分" : "警告处分";
-        detail = "核查认定 " + discovered.length + " 项待查事项。处分影响期 " + R.duration(months) + "。";
-      }
+      detail = "本轮核对了已经处理的案情，累计记录继续有效。";
+    }
+    if (hit && items.length) {
+      const gravity = items.reduce((sum, index) => sum + state.incidents[index].severity, 0) + Math.min(2, state.cases.length);
+      state.case = { opened: state.month, due: state.month + 2, stage: "investigation", items, gravity,
+        network: state.score.ties, tier: state.central ? 2 : state.post.level >= 5 ? 1 : 0, proposed: null };
+      headline = "发现问题，进入核查";
+      detail = items.length + " 项记录进入核查。任用和在办安排暂停，下一节点在 " + R.date(state.case.due) + "。";
     }
     record(state, "audit", headline, detail);
-    state.reveals.push({ kind: "audit", subject: "例行纪检检查", chance, hit, major, title: headline, detail, month: state.month });
+    const examples = items.length ? items : state.incidents.map((_, index) => index);
+    state.reveals.push({ kind: "audit", subject: "例行纪检检查", chance, hit, title: headline, detail,
+      evidence: evidence(state, examples), month: state.month });
+  }
+
+  function caseReveal(state, current, headline, detail, rescue = null, hit = true) {
+    record(state, "audit", headline, detail);
+    state.reveals.push({ kind: "case", subject: caseSteps[current.stage], chance: null, hit, title: headline, detail,
+      rescue, evidence: evidence(state, current.items), month: state.month });
+  }
+
+  function settleFacts(state, items) {
+    for (const index of items) {
+      const item = state.incidents[index];
+      item.resolved = true;
+      item.checkedAt = state.month;
+      if (!item.gains) continue;
+      for (const key of Object.keys(C.limits)) state.score[key] = Math.max(0, state.score[key] - item.gains[key]);
+    }
+    let owner = state;
+    let key = "plan";
+    while (owner[key]) {
+      const plan = owner[key];
+      if (plan.type === "offense" && state.incidents[plan.incident].resolved) {
+        owner[key] = null;
+        break;
+      }
+      owner = plan;
+      key = "resume";
+    }
+  }
+
+  function expelParty(state) {
+    state.party = { stage: 0, since: null, ends: 0, rejoin: state.month + 60 };
+  }
+
+  function applyDemotion(state, current, rescued) {
+    const former = title(state);
+    const wasMember = state.party.stage === 3;
+    const expelled = wasMember && current.gravity >= 6 && !rescued;
+    const partyPost = state.central || state.post.path === "party";
+    if (expelled) expelParty(state);
+    if (state.formal) {
+      state.rank = Math.max(0, state.rank - 1);
+      state.rankSince = state.month;
+    }
+    state.reappointmentSince = state.month;
+    state.penalty = state.month + 24;
+    state.goal = "";
+    if (state.central > 1 && !expelled) {
+      newPosition(state);
+      state.central--;
+      noteStint(state);
+    } else {
+      state.central = 0;
+      install(state, C.lowerPost(state.post), "改任较低岗位");
+    }
+    state.score.credit = Math.max(0, state.score.credit - 10);
+    const partyNote = expelled ? "同时开除党籍。五年后可重新申请入党。" :
+      wasMember && partyPost ? "按党纪撤销相应党内职务。" : "";
+    return former + " → " + title(state) + "。影响期 24 个月。" + partyNote;
+  }
+
+  function closeCase(state, result, rescue = null) {
+    const current = state.case;
+    const rescued = Boolean(rescue);
+    if (result !== "exempt") settleFacts(state, current.items);
+    if (rescued) {
+      state.score.ties = 0;
+      state.incidents.push({ title: "案件处理中的违规干预", choice: "人脉转圜", month: state.month,
+        risk: 6, severity: 3, boost: 0, finished: true, resolved: false });
+    }
+    let detail;
+    if (result === "demotion") {
+      detail = applyDemotion(state, current, rescued);
+    } else if (result === "warning" || result === "demerit") {
+      const months = result === "warning" ? 6 : 12;
+      state.penalty = Math.max(state.penalty, state.month + months);
+      state.score.credit = Math.max(0, state.score.credit - current.gravity * 2);
+      detail = "处分影响期 " + months + " 个月。在岗安排可继续。" +
+        (state.party.stage === 3 ? "党内处分同步记入履历。" : "");
+    } else if (result === "exempt") {
+      detail = "你留在原岗。本案记录仍为待查，后续检查可能重新调阅。";
+    } else {
+      const sentenced = result === "sentence";
+      detail = sentenced ? "法院作出有罪判决并判处实刑。" : "处分决定生效，公职终止。";
+      if (state.party.stage === 3) {
+        expelParty(state);
+        detail += "同步记录开除党籍。";
+      }
+      finish(state, sentenced ? "sentenced" : "dismissed", detail);
+    }
+    if (rescued) detail += "人脉清零，永久危险 +6 个百分点。";
+    state.cases.push({ opened: current.opened, closed: state.month, result, title: dispositions[result], detail });
+    state.case = null;
+    caseReveal(state, current, dispositions[result], detail, rescue, result !== "exempt");
+    if (!state.outcome && !retireIfDue(state)) queueFollowUps(state);
+  }
+
+  function rescueOdds(current) {
+    const [demote, exempt] = rescueTable[current.tier];
+    const factor = clamp((current.network - 20) / 10, 0, 1);
+    return { demote: demote * factor, exempt: exempt * factor };
+  }
+
+  function progressCase(state) {
+    const current = state.case;
+    if (state.month < current.due) return;
+    if (current.stage === "investigation") {
+      const severity = current.gravity;
+      current.proposed = severity >= 9 ? "prosecution" : severity >= 7 ? "dismissal" : severity >= 4 ? "demotion" :
+        severity >= 3 ? "demerit" : "warning";
+      if (severity < 7) {
+        closeCase(state, current.proposed);
+        return;
+      }
+      current.stage = "disposition";
+      current.due = state.month + 1;
+      const odds = rescueOdds(current);
+      caseReveal(state, current, "拟" + dispositions[current.proposed],
+        "复核日期为 " + R.date(current.due) + "。按被查当时的职位与人脉结算一次转圜机会。", odds);
+      return;
+    }
+    if (current.stage === "disposition") {
+      const odds = rescueOdds(current);
+      const roll = odds.demote || odds.exempt ? random(state) * 100 : 100;
+      if (roll < odds.exempt + odds.demote) {
+        closeCase(state, roll < odds.exempt ? "exempt" : "demotion", odds);
+      } else if (current.proposed === "dismissal") {
+        closeCase(state, "dismissal");
+      } else {
+        current.stage = "prosecution";
+        current.due = state.month + 3;
+        caseReveal(state, current, "监察调查终结，移送检察机关", "检察机关审查起诉，预计 " + R.date(current.due) + " 出具决定。");
+      }
+      return;
+    }
+    if (current.stage === "prosecution") {
+      current.stage = "trial";
+      current.due = state.month + 4;
+      caseReveal(state, current, "检察机关提起公诉", "案件进入法院审理，下一节点在 " + R.date(current.due) + "。");
+      return;
+    }
+    closeCase(state, "sentence");
   }
 
   function candidate(state) {
     const wanted = target(state);
-    if (state.health < 20 || !availableWindow(state, wanted, state.month)) return null;
+    if (state.case || state.health < 20 || !availableWindow(state, wanted, state.month)) return null;
     const current = assessTarget(state, wanted);
     return current.qualified ? current : null;
   }
 
+  function retireIfDue(state) {
+    if (state.month < retirement(state).month) return false;
+    finish(state, state.highest ? "retired" : "steady", "本局任职到龄，任用、办事与纪检记录已经归档。");
+    return true;
+  }
+
   function settleMonth(state) {
     if (state.month % 48 === 0) inspect(state);
-    if (state.outcome) return;
-    if (state.month >= retirement(state).month) {
-      finish(state, state.highest ? "retired" : "steady", "本局任职到龄，所有任用、办事和纪检记录均已归档。");
-      return;
-    }
+    if (state.case || retireIfDue(state)) return;
     const current = candidate(state);
     if (!current?.probability) return;
     const { wanted, probability } = current;
@@ -276,37 +432,33 @@ const ProgressCareer = (() => {
     const hit = random(state) * 100 < probability;
     const result = hit ? (wanted.kind === "rank" ? "职级晋升" : "任用成功") : "本轮未获任用";
     const rival = C.people[(state.calendar + Math.floor(state.month / 6)) % C.people.length];
-    const later = current.next === null ? "本局到龄前暂无排定窗口。" : "下次预计机会在" + R.date(current.next) + "。";
+    const later = current.next === null ? "到龄前暂无排定窗口。" : "下次预计机会在 " + R.date(current.next) + "。";
     const detail = hit ? wanted.procedure + "。拟任" + wanted.title + "。" :
       (wanted.kind === "rank" ? "本轮审批结果已登记。" : "该轮任用名额由" + rival + "获得。") + later;
     state.reveals.push({ kind: "promotion", subject: wanted.title, chance: probability, hit,
       major: wanted.kind === "central" || wanted.band === "province" && hit, title: result, detail, month: state.month });
     record(state, "office", result, wanted.title + " · 当轮胜算 " + probability.toFixed(1) + "%。");
     if (hit) promote(state, wanted);
-  }
-
-  function lateOffer(state) {
-    return offenseOffer(state, {
-      id: "window-" + state.month, title: "临窗的违规交换", body: C.temptations[currentScope(state)],
-      weight: 0.72, risk: 4, severity: 3,
-    });
+    else state.waits[wanted.id] ??= 0;
   }
 
   function prepareReview(state) {
-    if (state.month >= retirement(state).month) return false;
-    const current = candidate(state);
-    if (!current || current.probability >= current.cap * 0.82) return false;
-    const offer = lateOffer(state);
-    if (offer.bonus < 2 || !offer.risk || random(state) >= 0.28) return false;
-    state.review = { month: state.month, target: current.wanted.id, offer };
-    return true;
+    const wanted = target(state);
+    const due = state.month + 2;
+    if (!wanted || !availableWindow(state, wanted, due) || due >= retirement(state).month || workTime(state) < 2) return;
+    const current = assessTarget(state, wanted);
+    if ((!current.qualified && current.yearsReady !== due) || current.probability >= 85 || random(state) >= 0.24) return;
+    const offer = { id: "window-" + due, title: "临窗的违规交换", body: C.temptations[currentScope(state)],
+      months: 2, boost: 11, risk: 5, severity: 3 };
+    state.review = { month: state.month, target: wanted.id, due, offer };
   }
 
   function resolveReview(state, accept) {
-    if (!state.review || state.outcome || state.reveals.length) return false;
-    if (accept) applyOffense(state, state.review.offer);
+    if (!state.review || state.outcome || state.reveals.length || state.case) return false;
+    const { offer, legacy } = state.review;
+    if (accept && !startOffense(state, offer)) return false;
     state.review = null;
-    settleMonth(state);
+    if (legacy) settleMonth(state);
     return true;
   }
 
@@ -321,7 +473,7 @@ const ProgressCareer = (() => {
       id: "training", title: "参加集中培训", body: "完成后记入 " + training.hours + " 学时。",
       option: C.pick("参加集中培训", training.months, { training: training.hours }),
     }];
-    if (!state.party.stage) list.push({
+    if (!state.party.stage && (state.party.rejoin || 0) <= state.month) list.push({
       id: "party", title: "递交入党申请", body: "进入培养和考察安排，党龄从转为正式党员之日计算。",
       option: C.pick("递交入党申请", 1, { party: true }),
     });
@@ -354,13 +506,15 @@ const ProgressCareer = (() => {
   const followDelay = { work: 12, promise: 12, help: 9, favor: 18 };
 
   function currentEvent(state) {
+    if (state.case) return null;
     if (state.review) return { kind: "review", ...state.review };
     const next = state.pending[0];
     if (next?.type === "random") return { kind: "legacy", ...legacyEvents.get(next.id), month: next.month };
+    if (next?.type === "story") return { kind: "story", ...stories.get(next.id), month: next.month };
     if (next?.type === "follow") {
       const related = state.followUps[next.id];
-      return { kind: "legacy", ...follows[related.kind],
-        body: "此前「" + related.topic + "」留下了一件后续事项。" + follows[related.kind].body, month: next.month };
+      const response = S.aftermath[related.kind] || follows[related.kind];
+      return { kind: "follow", ...response, body: "来自「" + related.topic + "」。" + response.body, month: next.month };
     }
     if (state.plan?.type === "project" && state.plan.phase === "choice") {
       const project = projectIndex.get(state.plan.id);
@@ -375,6 +529,18 @@ const ProgressCareer = (() => {
       item.queued = true;
       state.pending.push({ type: "follow", id: index, month: state.month });
     }
+  }
+
+  function nextFollowUp(state) {
+    return state.followUps.filter((item) => !item.queued).sort((a, b) => a.due - b.due)[0] || null;
+  }
+
+  function queueStory(state) {
+    const pool = S.stories.filter((story) => story.scope === currentScope(state) && !state.seen.includes(story.id));
+    if (!pool.length || random(state) >= 0.04) return;
+    const event = pool[Math.floor(random(state) * pool.length)];
+    state.seen.push(event.id);
+    state.pending.push({ type: "story", id: event.id, month: state.month });
   }
 
   function apply(state, label, effect, kind, action = "") {
@@ -395,8 +561,10 @@ const ProgressCareer = (() => {
       record(state, "office", "开始培养考察", "入党申请已提交，进入本局培养安排。");
     }
     if (effect.post) install(state, effect.post, action === "selection" ? "遴选后转任" : "交流任职");
-    if (effect.follow) state.followUps.push({ kind: effect.follow, topic: label,
-      due: state.month + followDelay[effect.follow], queued: false });
+    if (effect.follow) {
+      const next = typeof effect.follow === "string" ? { id: effect.follow, months: followDelay[effect.follow] } : effect.follow;
+      state.followUps.push({ kind: next.id, topic: label, due: state.month + next.months, queued: false });
+    }
     const detail = [...(action && kind === "event" ? [action] : []), ...growth];
     if (effect.training) detail.push("培训 +" + effect.training + " 学时");
     if (detail.length || kind !== "routine") record(state, kind, label, detail.join(" · ") || "按安排完成。");
@@ -444,11 +612,6 @@ const ProgressCareer = (() => {
     state.yearWork = 0;
   }
 
-  function projects(state) {
-    return C.projects.filter((project) => project.scope === currentScope(state) && (project.central || 0) <= state.central &&
-      !state.projectsDone.includes(project.id));
-  }
-
   function workTime(state, health = state.health) {
     return Math.max(0, Math.min(retirement(state).month - state.month, health - 19));
   }
@@ -459,19 +622,13 @@ const ProgressCareer = (() => {
   }
 
   function canArrange(state) {
-    return !state.outcome && !state.reveals.length && !currentEvent(state);
+    return !state.outcome && !state.reveals.length && !state.case && !currentEvent(state);
   }
 
   function startRoutine(state, key, months) {
     if (!canArrange(state) || state.health < 20 || !Object.hasOwn(C.routine, key) || !durations.includes(months) ||
       !routineYield(state, key, months)) return false;
     state.plan = { type: "routine", id: key, start: state.month, due: state.month + 6, end: state.month + months };
-    return true;
-  }
-
-  function startProject(state, id) {
-    if (!canArrange(state) || workTime(state) < 9 || !projects(state).some((project) => project.id === id)) return false;
-    state.plan = { type: "project", id, start: state.month, due: state.month + 6, phase: "survey" };
     return true;
   }
 
@@ -490,7 +647,7 @@ const ProgressCareer = (() => {
   }
 
   function cancelPlan(state) {
-    if (!state.plan || state.outcome || state.reveals.length) return false;
+    if (!state.plan || state.outcome || state.reveals.length || state.case) return false;
     const event = currentEvent(state);
     if (event && event.kind !== "project") return false;
     state.plan = null;
@@ -507,14 +664,15 @@ const ProgressCareer = (() => {
     if (plan.type === "routine") {
       return { title: C.routine[plan.id].title, from: plan.start, due: plan.due, end: plan.end, label: "下一笔" + C.categories[plan.id] };
     }
-    return { title: plan.type === "rest" ? "休养生息" : plan.title, from: plan.start, due: plan.end, label: "安排结束" };
+    return { title: plan.type === "rest" ? "休养生息" : plan.title, from: plan.start, due: plan.end,
+      label: plan.type === "offense" ? "胜算加成到账" : "安排结束" };
   }
 
   function allowed(state, option) {
-    if (!option || state.outcome || state.reveals.length || state.review) return false;
-    if (currentEvent(state)?.kind !== "project") return !option.months || option.months <= workTime(state);
+    if (!option || state.outcome || state.reveals.length || state.review || state.case) return false;
     const effort = option.effect.health || 0;
-    return (effort >= -15 || state.health >= 60) && option.months <= workTime(state, state.health + effort);
+    return (effort >= -15 || state.health >= 60) && (!option.months ||
+      option.months <= workTime(state, state.health + Math.min(0, effort)));
   }
 
   function chooseEvent(state, index) {
@@ -531,18 +689,23 @@ const ProgressCareer = (() => {
       record(state, "event", event.title, option.title + " · 预计 " + R.date(state.plan.end) + " 交付。");
     } else {
       state.pending.shift();
+      if (event.kind === "story") state.projects++;
       if (!option.months) apply(state, event.title, option.effect, "event", option.title);
       else {
         const resume = state.plan;
-        for (let delayed = resume; delayed; delayed = delayed.resume) {
-          if (delayed.due != null) delayed.due += option.months;
-          if (delayed.end != null) delayed.end += option.months;
-        }
+        postpone(resume, option.months);
         state.plan = { type: "response", title: event.title, start: state.month, end: state.month + option.months,
           effect: option.effect, choice: option.title, resume };
       }
     }
     return true;
+  }
+
+  function postpone(plan, months) {
+    for (let delayed = plan; delayed; delayed = delayed.resume) {
+      if (delayed.due != null) delayed.due += months;
+      if (delayed.end != null) delayed.end += months;
+    }
   }
 
   function tickWork(state) {
@@ -571,8 +734,16 @@ const ProgressCareer = (() => {
       state.plan = plan.resume || null;
       if (plan.type === "project") {
         state.projects++;
-        state.projectsDone.push(plan.id);
+        if (!state.seen.includes(plan.id)) state.seen.push(plan.id);
         apply(state, projectIndex.get(plan.id).title, plan.effect, "work");
+      } else if (plan.type === "offense") {
+        const item = state.incidents[plan.incident];
+        if (item.term === state.term && !item.resolved) {
+          item.finished = true;
+          record(state, "audit", plan.title + " · 加成到账", "任内胜算 +" + item.boost + " 个百分点。");
+        } else {
+          record(state, "audit", plan.title + " · 归档", "该安排已交接或纳入处理。");
+        }
       } else {
         apply(state, plan.title, plan.effect, plan.type === "response" ? "event" : "work", plan.choice || plan.id);
       }
@@ -584,6 +755,7 @@ const ProgressCareer = (() => {
   }
 
   function canAdvance(state) {
+    if (state.case) return !state.outcome && !state.reveals.length;
     return canArrange(state) && (state.health >= 20 || state.plan?.type === "rest");
   }
 
@@ -593,23 +765,35 @@ const ProgressCareer = (() => {
       const plan = state.plan;
       const position = state.post.id;
       const since = state.postSince;
-      if (state.post.local) state.localMonths++;
+      const underReview = Boolean(state.case);
+      if (!underReview) {
+        countWaiting(state);
+        if (state.post.local) state.localMonths++;
+      }
       state.month++;
-      tickWork(state);
+      if (underReview) postpone(state.plan, 1);
+      else tickWork(state);
       const tenure = state.month - state.postSince;
-      if (tenure > 0 && tenure <= 36 && tenure % 12 === 0 && plan?.type !== "rest") {
+      if (!underReview && tenure > 0 && tenure <= 36 && tenure % 12 === 0 && plan?.type !== "rest") {
         apply(state, "日常履职", { credit: 2 }, "routine");
       }
       advanceEntry(state);
       if (state.month % 12 === 0) annual(state);
+      if (underReview) {
+        progressCase(state);
+        if (state.reveals.length || state.outcome || !state.case) return true;
+        continue;
+      }
       if (!state.central && state.post.level >= 3 && ["party", "people"].includes(state.post.path) &&
         state.month - state.postSince >= 120 && state.month < retirement(state).month) {
         install(state, C.lateral(state.post), "按任期安排交流");
       }
-      queueFollowUps(state);
-      if (prepareReview(state)) return true;
       settleMonth(state);
-      if (state.outcome || state.reveals.length || currentEvent(state) || state.post.id !== position || state.postSince !== since ||
+      if (state.outcome || state.case || state.reveals.length) return true;
+      queueFollowUps(state);
+      if (!currentEvent(state)) queueStory(state);
+      if (!currentEvent(state)) prepareReview(state);
+      if (currentEvent(state) || state.post.id !== position || state.postSince !== since ||
         plan && state.plan !== plan || state.health < 20 && !state.plan) return true;
     }
     return true;
@@ -644,6 +828,7 @@ const ProgressCareer = (() => {
     if (plan === null) return true;
     if (!plan || !Number.isInteger(plan.start)) return false;
     if (plan.type === "routine") return Object.hasOwn(C.routine, plan.id) && Number.isInteger(plan.due) && Number.isInteger(plan.end);
+    if (plan.type === "offense") return Number.isInteger(plan.incident) && Number.isInteger(plan.end) && typeof plan.title === "string";
     if (plan.type === "project") return projectIndex.has(plan.id) && ["survey", "choice", "delivery"].includes(plan.phase) &&
       Number.isInteger(plan.due) && (plan.phase !== "delivery" || Number.isInteger(plan.end) && plan.effect);
     return ["rest", "service", "response"].includes(plan.type) && Number.isInteger(plan.end) &&
@@ -651,18 +836,32 @@ const ProgressCareer = (() => {
   }
 
   function valid(state) {
-    return hasCareer(state) && Number.isInteger(state.term) && state.term >= 0 && Array.isArray(state.projectsDone) &&
-      validPlan(state.plan) && (state.review === null || state.review?.month === state.month && state.review.offer?.bonus > 0);
+    return hasCareer(state) && Number.isInteger(state.term) && state.term >= 0 && Array.isArray(state.seen) &&
+      Array.isArray(state.cases) && state.waits && validPlan(state.plan) &&
+      (state.review === null || state.review?.month === state.month && state.review.offer?.boost > 0) &&
+      (state.case === null || Object.hasOwn(caseSteps, state.case?.stage) && Array.isArray(state.case.items));
   }
 
-  function upgrade(state) {
-    if (!hasCareer(state)) return null;
-    const { cycle, recentOffers, recentEvents, eligibleSince, ...career } = state;
-    return { ...career, plan: null, term: 0, projectsDone: [], review: null };
+  function upgrade(state, version) {
+    if (!hasCareer(state) || ![2, 3].includes(version)) return null;
+    const { cycle, recentOffers, recentEvents, eligibleSince, projectsDone, ...career } = state;
+    const merit = (value) => Math.round(value * 30 / 40);
+    const plan = version === 3 && validPlan(career.plan) ? career.plan : null;
+    const seen = new Set(projectsDone || []);
+    if (plan?.type === "project") seen.add(plan.id);
+    for (const entry of career.log) {
+      const prior = S.stories.find((story) => projectIndex.get(story.id)?.title === entry.title);
+      if (prior) seen.add(prior.id);
+    }
+    const incidents = career.incidents.map((item) => item.gains ? { ...item, gains: { ...item.gains, merit: merit(item.gains.merit) } } : item);
+    const review = career.review?.offer ? { ...career.review, due: state.month + 2, legacy: true,
+      offer: { ...career.review.offer, boost: career.review.offer.bonus, months: 2 } } : null;
+    return { ...career, score: { ...career.score, merit: merit(career.score.merit) }, incidents,
+      plan, term: career.term ?? 0, waits: {}, seen: [...seen], review, case: null, cases: [], reappointmentSince: 0 };
   }
 
   return { create, valid, upgrade, currentScope, title, age, retirement, totalScore, danger, healthStatus, nextInspection,
-    durations, routineGain, opportunities, target, assessTarget, setGoal, offenses, offend, resolveReview,
-    services, projects, routineYield, workTime, canArrange, startRoutine, startProject, startService, startRest, cancelPlan,
+    durations, routineGain, opportunities, target, assessTarget, setGoal, offenses: C.offenses, offend, resolveReview, caseInfo, nextFollowUp,
+    services, routineYield, workTime, canArrange, startRoutine, startService, startRest, cancelPlan,
     planInfo, currentEvent, allowed, chooseEvent, canAdvance, advance, acknowledge, leave };
 })();

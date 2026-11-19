@@ -32,7 +32,11 @@
   }
 
   function gameSave(game) {
-    return arcadeSaves.read(game.saveKey || game.id) || (game.priorSaveKey ? arcadeSaves.read(game.priorSaveKey) : null);
+    for (const key of [game.saveKey || game.id, ...(game.priorSaveKeys || [])]) {
+      const save = arcadeSaves.read(key);
+      if (save) return save;
+    }
+    return null;
   }
 
   function renderGames(category) {

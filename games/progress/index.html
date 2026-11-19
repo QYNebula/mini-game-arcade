@@ -6,13 +6,14 @@
   <meta name="theme-color" content="#f4ece4">
   <meta name="description" content="从模拟招考开始，安排任期中的工作与休养，争取下一次任用。">
   <title>进步模拟器 · 指尖游戏厅</title>
-  <link rel="stylesheet" href="styles.css?v=3">
+  <link rel="stylesheet" href="styles.css?v=4">
   <script src="../../js/save-store.js" defer></script>
-  <script src="rules.js?v=2" defer></script>
-  <script src="content.js?v=3" defer></script>
+  <script src="rules.js?v=4" defer></script>
+  <script src="content.js?v=4" defer></script>
+  <script src="stories.js?v=4" defer></script>
   <script src="exam.js?v=2" defer></script>
-  <script src="career.js?v=3" defer></script>
-  <script src="game.js?v=3" defer></script>
+  <script src="career.js?v=4" defer></script>
+  <script src="game.js?v=4" defer></script>
 </head>
 <body>
   <header class="masthead">
@@ -96,18 +97,26 @@
       </nav>
       <section id="desk" aria-label="任内安排">
         <section class="agenda paper" aria-labelledby="agenda-title">
-          <div id="plan-status"></div>
-          <div class="agenda-actions">
-            <button type="button" class="button primary" id="advance">推进时间 <span aria-hidden="true">→</span></button>
-            <button type="button" class="button secondary" id="cancel-plan" hidden>取消安排</button>
+          <div class="agenda-head">
+            <div id="plan-status"></div>
+            <div class="agenda-actions">
+              <button type="button" class="button primary" id="advance"><span id="advance-label">推进时间</span> <span aria-hidden="true">→</span></button>
+              <button type="button" class="button secondary" id="cancel-plan" hidden>取消安排</button>
+            </div>
           </div>
+          <div class="agenda-strip" id="agenda-strip"></div>
+          <details class="disclosure agenda-details">
+            <summary>查看完整日程</summary>
+            <ol class="agenda-dates" id="agenda-dates"></ol>
+            <div id="agenda-qualifications"></div>
+          </details>
         </section>
         <div class="desk-grid">
           <div class="stack">
             <section id="event" class="paper event" hidden></section>
             <section class="paper planner" aria-labelledby="tasks-title">
               <div class="section-top planner-head">
-                <h2 id="tasks-title">常驻安排</h2>
+                <h2 id="tasks-title">普通安排</h2>
                 <label class="duration">安排时长
                   <select id="routine-duration">
                     <option value="6">半年</option>
@@ -119,10 +128,6 @@
               <div id="routine-list" class="routine-list"></div>
               <div id="rest-controls" class="rest-controls"></div>
             </section>
-            <section class="paper" aria-labelledby="projects-title">
-              <h2 id="projects-title">重点项目</h2>
-              <div id="projects" class="task-grid"></div>
-            </section>
             <details class="paper service-plans">
               <summary>培训、交流与入党安排</summary>
               <div id="services" class="task-grid"></div>
@@ -130,7 +135,6 @@
           </div>
           <aside class="stack" aria-label="表现与最近记录">
             <section class="paper" aria-labelledby="scores-title"><h2 id="scores-title">个人表现</h2><div id="scores" class="score-list"></div></section>
-            <section class="paper" aria-labelledby="notice-heading"><h2 id="notice-heading">任用日程</h2><div id="notice" class="stack"></div></section>
             <section class="paper" aria-labelledby="journal-title"><h2 id="journal-title">最近记录</h2><ol id="journal" class="records"></ol></section>
           </aside>
         </div>
@@ -143,7 +147,8 @@
             <section class="paper"><h2>个人履历</h2><dl class="facts" id="career-facts"></dl><ol class="records" id="career-log"></ol></section>
           </div>
           <aside class="stack">
-            <section class="paper"><h2>案情记录</h2><p class="muted explanation" id="risk-note"></p><ol class="records" id="incidents"></ol></section>
+            <section class="paper"><h2>案情记录</h2><p class="muted explanation" id="risk-note"></p>
+              <div id="case-record" class="stack"></div><ol class="records" id="incidents"></ol></section>
             <section class="paper" id="departure"><h2>离任</h2><div class="actions"></div><p class="fine" id="departure-note"></p></section>
           </aside>
         </div>
@@ -153,7 +158,7 @@
         <div class="desk-grid">
           <section class="paper" aria-labelledby="violation-heading">
             <h2 id="violation-heading">违规操作</h2>
-            <p class="muted explanation">每项在本任可用一次。确认后，立刻增加任内胜算和永久危险值。</p>
+            <p class="muted explanation">可重复安排，占用工作时间。确认后记入永久危险，做完才增加本任胜算。</p>
             <div id="offense-list" class="task-grid"></div>
           </section>
           <aside class="paper" aria-labelledby="offense-heading">
@@ -181,26 +186,30 @@
     <noscript><p class="paper">请启用 JavaScript 以继续游戏。</p></noscript>
   </main>
 
-  <dialog class="dialog paper reveal" id="reveal-dialog" aria-labelledby="reveal-heading">
-    <p class="overline" id="reveal-kind"></p>
-    <h2 id="reveal-heading"></h2>
-    <p class="reveal-chance" id="reveal-chance"></p>
-    <div class="document" id="reveal-document">
-      <div class="folder" aria-hidden="true">
-        <span class="folder-page folder-back"></span>
-        <span class="folder-page folder-middle"></span>
-        <div class="folder-page folder-front"><div class="seal" id="reveal-seal"></div></div>
+  <dialog class="reveal" id="reveal-dialog" aria-labelledby="reveal-heading">
+    <div class="stage-lighting" aria-hidden="true">
+      <i class="spotlight"></i><i class="spotlight"></i><i class="spotlight"></i>
+      <i class="stage-floor"></i><i class="curtain curtain-left"></i><i class="curtain curtain-right"></i>
+    </div>
+    <div class="confetti" id="reveal-confetti" aria-hidden="true"></div>
+    <section class="reveal-panel">
+      <p class="overline" id="reveal-kind"></p>
+      <h2 id="reveal-heading"></h2>
+      <p class="reveal-chance" id="reveal-chance"></p>
+      <div class="scan-board" id="reveal-document" aria-hidden="true">
+        <ol id="scan-records"></ol>
+        <div class="lens"></div>
       </div>
-      <div class="confetti" id="reveal-confetti" aria-hidden="true"></div>
       <div id="reveal-result" hidden>
         <span class="result-stamp" id="result-stamp" aria-hidden="true"></span>
-        <h3 id="reveal-title" tabindex="-1"></h3><p id="reveal-detail"></p>
+        <h3 id="reveal-title" tabindex="-1"></h3>
+        <p id="reveal-detail"></p>
       </div>
-    </div>
-    <div class="actions spread reveal-footer">
-      <p id="reveal-caption" role="status"></p>
-      <button type="button" class="button primary" id="reveal-next">跳过动画</button>
-    </div>
+      <div class="reveal-footer">
+        <p id="reveal-caption" role="status"></p>
+        <button type="button" class="button primary" id="reveal-next">跳过动画</button>
+      </div>
+    </section>
   </dialog>
   <dialog class="dialog paper" id="confirm-dialog" aria-labelledby="confirm-heading">
     <form method="dialog">
