@@ -59,7 +59,10 @@ const ProgressRules = (() => {
   }
 
   function retirement(state, level = state.post.level, seat = state.central) {
-    if (seat) return { month: state.birth + 70 * 12 - startYear * 12, simulated: true, label: "中央任期年龄 · 模拟" };
+    if (seat) {
+      const age = seat >= 2 ? 75 : 70;
+      return { month: state.birth + age * 12 - startYear * 12, age, simulated: true, label: "模拟生涯上限" };
+    }
     if (level >= 7) return { month: state.birth + 65 * 12 - startYear * 12, simulated: true, label: "省部任期年龄 · 模拟" };
     const special = state.gender === "female" && (level >= 3 || state.rank >= 6);
     const original = state.gender === "female" && !special ? 55 : 60;

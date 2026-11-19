@@ -209,12 +209,14 @@
   function renderAgenda(review) {
     const plan = E.planInfo(state);
     const investigation = E.caseInfo(state);
+    const retire = E.retirement(state);
     const status = byId("plan-status");
     const title = investigation?.label || plan?.title || (state.health < 20 ? "请先安排病休" : "继续履职");
     const heading = element("h2", "", title);
     heading.id = "agenda-title";
     status.replaceChildren(heading);
-    status.append(element("p", "", "现职已满 " + R.duration(state.month - state.postSince)));
+    status.append(element("p", "", "现职已满 " + R.duration(state.month - state.postSince) +
+      (retire.age ? " · 模拟生涯上限 " + retire.age + " 岁" : "")));
     if (plan && !investigation) {
       const until = plan.end ?? plan.due;
       if (until > plan.from) {
@@ -228,7 +230,6 @@
     const needs = review.wanted?.needs.filter((item) => !item.ok) || [];
     const pending = needs.find((item) => !Number.isInteger(item.due));
     const inspection = E.nextInspection(state);
-    const retirement = E.retirement(state).month;
     const entries = [];
     if (investigation) entries.push({ month: investigation.due, title: investigation.label, type: "case" });
     if (plan && !investigation) entries.push({ month: plan.due, title: plan.label, type: "plan" });
@@ -238,11 +239,12 @@
     if (state.placement?.active && review.wanted?.kind !== "rank") {
       entries.push({ month: state.placement.end, title: "结束基层锻炼", type: "gate" });
     }
-    if (inspection <= retirement) entries.push({ month: inspection, title: "例行纪检", type: "audit" });
+    if (inspection <= retire.month) entries.push({ month: inspection, title: "例行纪检", type: "audit" });
     if (review.expected !== null && state.goal !== "stay") {
       entries.push({ month: review.expected, title: pending ? "任用窗口 · 须补齐资格" : "预计任用窗口", type: "office" });
     }
-    entries.push({ month: Math.max(state.month, retirement), title: "到龄", type: "retirement" });
+    const deadline = retire.age ? retire.label + " · " + retire.age + " 岁" : "到龄";
+    entries.push({ month: Math.max(state.month, retire.month), title: deadline, type: "retirement" });
     const priority = ["plan", "case", "gate", "audit", "office", "event", "retirement"];
     entries.sort((a, b) => a.month - b.month || priority.indexOf(a.type) - priority.indexOf(b.type));
 
@@ -271,8 +273,13 @@
   }
 
   function effectLine(option) {
+    const offense = option.effect.offense;
     const when = option.months ? R.date(state.month + option.months) + " 办结" : "当场处理";
     const tags = [when];
+    if (offense) {
+      tags.unshift(R.duration(option.months));
+      tags.push("完成后本任胜算 +" + offense.boost + " 个百分点", "选定即记永久危险 +" + offense.risk + " 个百分点");
+    }
     for (const [key, label] of [...Object.entries(C.categories).filter(([key]) => key !== "rest"), ["health", "健康"]]) {
       if (option.effect[key]) tags.push(label + " " + signed(option.effect[key]));
     }
@@ -285,7 +292,8 @@
     const control = element("button", "choice");
     control.type = "button";
     control.disabled = !E.allowed(state, option);
-    control.append(element("strong", "", option.title), effectLine(option));
+    const offense = option.effect.offense;
+    control.append(element("strong", offense ? "danger-effect" : "", (offense ? "违规 · " : "") + option.title), effectLine(option));
     if (option.note) control.append(element("span", "effect-line", option.note));
     control.addEventListener("click", () => doAction(() => E.chooseEvent(state, index)));
     return control;
@@ -487,7 +495,7 @@
     const retire = E.retirement(state);
     byId("career-facts").replaceChildren(datum("工龄", R.duration(state.month)), datum("基层经历", R.duration(state.localMonths)),
       datum("现职经历", R.duration(state.month - state.postSince)), datum("党龄", R.partyMonths(state) ? R.duration(R.partyMonths(state)) : "—"),
-      datum(retire.label, R.date(retire.month)), datum("距到龄", R.duration(retire.month - state.month)),
+      datum(retire.label, (retire.age ? retire.age + " 岁 · " : "") + R.date(retire.month)), datum("距到龄", R.duration(retire.month - state.month)),
       datum("年度考核", state.assessments.at(-1)?.rating || "待考核"), datum("入职考试", state.examScore + " 分"),
       datum("近五年培训", state.training.filter((item) => item.month >= state.month - 60).reduce((sum, item) => sum + item.hours, 0) + " 学时"));
     if (retire.source) byId("career-facts").lastElementChild.after(datum("退休依据", source(retire.source)));

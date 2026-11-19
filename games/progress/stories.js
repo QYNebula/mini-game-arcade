@@ -2,6 +2,7 @@ const ProgressStories = (() => {
   const { pick } = ProgressContent;
   const story = (id, scope, title, body, ...options) => ({ id, scope, title, body, options });
   const follow = (id, months) => ({ id, months });
+  const unlawful = (title, months, offense, next = null) => pick(title, months, { offense, follow: next });
 
   const stories = [
     story("flood-roads", 0, "汛前的两条路", "雨季提前。医院通道与安置点支路都有险情，现有队伍只能马上接管一处。",
@@ -13,7 +14,8 @@ const ProgressStories = (() => {
       pick("先办已核实清单并逐户回访", 1, { credit: 5, merit: 2 }),
       pick("组织三方把争议一并谈妥", 2, { credit: 7, ties: 3, health: -5 }),
       pick("登记剩余争议并约定公开答复", 0, { credit: 1, follow: follow("wage-hearing", 4) }),
-      pick("按程序移交县里的专班", 0, { ties: -1 })),
+      pick("按程序移交县里的专班", 0, { ties: -1 }),
+      unlawful("把尚未支付的欠薪报为已结案", 1, { boost: 8, risk: 3, severity: 2 }, follow("wage-reopen", 4))),
     story("market-move", 0, "赶集日换了地方", "镇集市租期到了。摊主希望留在原街，消防与公交则要求挪出主通道。",
       pick("先划临时摊位，试运行两个月", 2, { merit: 6, ties: 2 }),
       pick("逐户说明搬迁和接驳方案", 1, { credit: 5 }),
@@ -33,7 +35,8 @@ const ProgressStories = (() => {
       pick("按作物生长期改轮灌顺序", 2, { merit: 7, credit: 2 }),
       pick("请相邻片区帮忙倒出一段时段", 1, { ties: 5, follow: follow("water-return", 6) }),
       pick("先保饮水和最紧急的两片地", 0, { merit: 2, ties: -2 }),
-      pick("公开交待缺口和申诉日期", 1, { credit: 5 })),
+      pick("公开交待缺口和申诉日期", 1, { credit: 5 }),
+      unlawful("答应违规优先给请托村供水", 1, { boost: 9, risk: 4, severity: 2 })),
 
     story("clinic-network", 1, "县域转诊试点遇阻", "县院想保住专科时段，偏远乡镇希望定期有医生下沉。两边都只愿先排半年的班表。",
       pick("做两处成熟的双向转诊点", 1, { merit: 5, credit: 2 }),
@@ -49,7 +52,8 @@ const ProgressStories = (() => {
       pick("封桥全面检测并安排绕行", 3, { merit: 9, credit: 5 }),
       pick("分段限行，尽快核验承重", 1, { merit: 5, health: -8, follow: follow("bridge-review", 5) }),
       pick("请邻县支援夜间抢修", 1, { ties: 6, merit: 3, follow: follow("flood-return", 6) }),
-      pick("先按预案改道，把检测交给当班队伍", 0, { credit: 1, merit: -1 })),
+      pick("先按预案改道，把检测交给当班队伍", 0, { credit: 1, merit: -1 }),
+      unlawful("把尚未验收的路段报为已验收", 1, { boost: 12, risk: 5, severity: 3 }, follow("bridge-correction", 6))),
     story("county-museum", 1, "老馆的开放日期", "老馆离开幕日只剩两个月。消防复验尚未排上，借展合同已约好送件。",
       pick("推迟开馆，集中补完复验", 2, { credit: 6, merit: 3 }),
       pick("把借展转为预约式临展", 1, { merit: 5, ties: 3 }),
@@ -64,7 +68,8 @@ const ProgressStories = (() => {
       pick("盘点再重排入库批次", 2, { credit: 7, merit: 3 }),
       pick("先把已核实库点恢复使用", 1, { merit: 5, credit: 2 }),
       pick("请邻区协助盘点与暂存", 1, { ties: 5, follow: follow("warehouse-return", 5) }),
-      pick("暂停疑点库位并登记待查", 0, { credit: 2 })),
+      pick("暂停疑点库位并登记待查", 0, { credit: 2 }),
+      unlawful("隐瞒盘点差额，照原数申报", 1, { boost: 10, risk: 4, severity: 3 })),
 
     story("city-link", 2, "跨县路网连通", "两县都能完工各自的路段，交界处施工日期重叠，绕行方案尚未共签。",
       pick("先交付能独立运行的两段", 1, { merit: 5, credit: 2 }),
@@ -75,7 +80,8 @@ const ProgressStories = (() => {
       pick("先公告核验过的两类项目", 1, { credit: 5, merit: 2 }),
       pick("按就业质量完成全市同口径复核", 3, { credit: 9, merit: 4 }),
       pick("留出一轮补证期，让各区一起完善标准", 1, { ties: 4, follow: follow("park-results", 7) }),
-      pick("列出暂缓名单和申复日期", 0, { credit: 2 })),
+      pick("列出暂缓名单和申复日期", 0, { credit: 2 }),
+      unlawful("把未达标园区报为已达标", 1, { boost: 12, risk: 6, severity: 4 }, follow("park-correction", 6))),
     story("city-high-water", 2, "两县争同一批排涝队", "一边水势更急，另一边交通一断就进不去。两份调拨申请都标了最高优先级。",
       pick("按现场水势分批支援，预置补调队", 2, { merit: 8, credit: 3 }),
       pick("先把设备送进即将封闭的区域", 1, { merit: 5, ties: 2 }),
@@ -106,7 +112,8 @@ const ProgressStories = (() => {
       pick("把成熟样板的核验报告先发出", 1, { credit: 5, merit: 2 }),
       pick("分组落实配套后再公布推广名单", 3, { credit: 8, merit: 4, ties: 3 }),
       pick("请资源较多的市承担试点辅导", 2, { ties: 7, follow: follow("pilot-budget", 8) }),
-      pick("留一轮准备期并公开延期原因", 0, { credit: 2, merit: -1 })),
+      pick("留一轮准备期并公开延期原因", 0, { credit: 2, merit: -1 }),
+      unlawful("违规给受请托地区提前审批", 2, { boost: 15, risk: 7, severity: 4 })),
     story("province-flood", 3, "上游来水会先过两省", "同一轮洪峰将先后进两个省。调蓄时段还没谈妥，一些县已经启动应急值守。",
       pick("确定联合调度和备用分洪安排", 3, { merit: 8, ties: 5 }),
       pick("先锁定本省两处关键水位", 1, { merit: 5, health: -8 }),
@@ -152,7 +159,8 @@ const ProgressStories = (() => {
       pick("追加对同一批样本的复核", 2, { credit: 8, health: -6 }),
       pick("先公布可确认的结果及存疑范围", 0, { credit: 3 }),
       pick("和相关地区确定后续的同一口径", 1, { ties: 6, credit: 2, follow: follow("policy-results", 6) }),
-      pick("先发布一份附比对方法的初步评估", 1, { merit: 4, credit: 3 })),
+      pick("先发布一份附比对方法的初步评估", 1, { merit: 4, credit: 3 }),
+      unlawful("把存在分歧的评估报为结论一致", 1, { boost: 14, risk: 8, severity: 4 })),
     story("national-recovery", 4, "几片受灾地区同时要求恢复运力", "各地的交通、医疗和企业恢复日程彼此牵动。一些运输能力可以临时跨区协调。",
       pick("分批恢复并明确各部委调度责任", 3, { merit: 9, credit: 4 }),
       pick("先确定全国关键线路的恢复顺序", 1, { merit: 7, health: -10 }),
@@ -171,6 +179,12 @@ const ProgressStories = (() => {
       options: [pick("重新核对工时并给出书面结论", 1, { credit: 5, merit: 2 }),
         pick("交出已核实材料，委托接手单位答复", 0, { credit: -1 })],
     },
+    "wage-reopen": {
+      title: "结案的欠薪单又送回来了", body: "几位工人拿着尚未收到的工资单来问，为什么他们的投诉已经结案。",
+      options: [pick("公开更正结案结果，重新核对支付", 2, { credit: -3 }),
+        pick("把记录移交专班复查", 0, { merit: -2, ties: -1 }),
+        unlawful("继续把未支付款项列为已结清", 1, { boost: 6, risk: 4, severity: 3 })],
+    },
     "water-return": {
       title: "轮灌协议等待下一次兑现", body: "先前调出水量的邻片区现在缺供水时段，提出按约定安排补回。",
       options: [pick("落实原约定并为受影响村另排时段", 1, { ties: 4, credit: 4 }),
@@ -186,6 +200,12 @@ const ProgressStories = (() => {
       options: [pick("腾一个月完成复验再公布限制", 1, { credit: 5, merit: 2 }),
         pick("按预案延长限行，移交当天记录", 0, { merit: -2, credit: 1 })],
     },
+    "bridge-correction": {
+      title: "桥梁复验对不上此前的记录", body: "复验报告到了。通行方案需要重排，此前报上的验收结果也需要有人说明。",
+      options: [pick("如实更正结果，重新安排检测", 2, { credit: -4 }),
+        pick("移交复验报告，请新的负责单位接手", 0, { merit: -2, ties: -2 }),
+        unlawful("继续隐瞒复验结果", 1, { boost: 7, risk: 5, severity: 3 })],
+    },
     "warehouse-return": {
       title: "跨地暂存物资等待归还", body: "借用的库位和人员要恢复原用途。另一地给出了最后的交接日期。",
       options: [pick("安排实地交接和逐批清点", 1, { ties: 5, credit: 3 }),
@@ -195,6 +215,12 @@ const ProgressStories = (() => {
       title: "产业试点交回阶段报告", body: "几地提供的数据有好有坏。大家在等你当初许诺的后评估。",
       options: [pick("公开差异并调整下一轮考核", 1, { credit: 5, merit: 3 }),
         pick("先归档结果，由原执行单位复核", 0, { credit: 1, ties: -1 })],
+    },
+    "park-correction": {
+      title: "园区名单被申复", body: "申请方拿出了新的核验材料，已经公布的达标名单需要重新审核。",
+      options: [pick("撤下有问题的名单，逐项复核", 2, { credit: -4 }),
+        pick("公开争议，把复核交给联合组", 0, { merit: -3, ties: -1 }),
+        unlawful("继续维持失实的达标结论", 1, { boost: 8, risk: 6, severity: 3 })],
     },
     "bus-counts": {
       title: "联运时刻迎来第一个客流高峰", body: "初定的时刻表已运行几个月，一些平峰班次挤在同一站点。",
