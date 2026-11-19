@@ -243,14 +243,10 @@ const ProgressCareer = (() => {
   function inspect(state) {
     state.checks++;
     const chance = Math.min(100, danger(state));
-    if (!chance) {
-      record(state, "audit", "四年一次的例行检查", "当前履历的危险值为 0%。");
-      return;
-    }
-    const hit = random(state) * 100 < chance;
+    const hit = chance > 0 && random(state) * 100 < chance;
     const items = state.incidents.flatMap((item, index) => item.resolved ? [] : [index]);
-    let headline = "本轮未触发进一步核查";
-    let detail = "记录继续进入下一轮例行检查。";
+    let headline = chance ? "本轮未触发进一步核查" : "例行检查完成";
+    let detail = chance ? "记录继续进入下一轮例行检查。" : "本轮危险值为 0%，履历已完成例行归档。";
     if (hit && !items.length) {
       headline = "核对既有处理记录";
       detail = "本轮核对了已经处理的案情，累计记录继续有效。";
@@ -264,8 +260,9 @@ const ProgressCareer = (() => {
     }
     record(state, "audit", headline, detail);
     const examples = items.length ? items : state.incidents.map((_, index) => index);
+    const records = chance ? evidence(state, examples) : state.stints.slice(-4).map((stint) => ({ month: stint.from, title: stint.title }));
     state.reveals.push({ kind: "audit", subject: "例行纪检检查", chance, hit, title: headline, detail,
-      evidence: evidence(state, examples), month: state.month });
+      evidence: records, month: state.month });
   }
 
   function caseReveal(state, current, headline, detail, rescue = null, hit = true) {
