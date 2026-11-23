@@ -20,3 +20,21 @@ python3 -m http.server 8080
 4. 在通关或关内检查点调用 `arcadeSaves.write(id, { version, summary, state })`。`summary` 是显示给玩家的进度，例如「第 3 关」。`state` 是该游戏需要保存的 JSON 数据。写入成功返回 `true`，浏览器拒绝时返回 `false`，游戏可据此提示玩家。
 
 每款游戏有独立的存档。确认重开后，旧存档保留到这款游戏首次成功保存新进度。游戏更新时可用 `version` 识别并迁移旧进度。
+
+## 五子棋联机
+
+大厅与单人对弈由静态网页提供。联机房间运行在 Cloudflare Workers 和 SQLite Durable Objects 上，房间规则与本地对弈共享。
+
+从仓库根目录启动网页和本地房间服务。用两个浏览器窗口或独立浏览器会话测试房间码和重连。
+
+```sh
+python3 -m http.server 8080
+```
+
+```sh
+cd workers/rooms
+npm ci
+npm run dev -- --var ROOM_ORIGINS:http://localhost:8080,http://127.0.0.1:8080
+```
+
+首次发布在目标 Cloudflare 账号授权后，于 `workers/rooms` 运行 `npm run deploy`。将 Worker 的公开地址填入 `games/gomoku/online-config.js`。如变更前端托管地址，同步修改 `wrangler.jsonc` 中的 `ROOM_ORIGINS`。

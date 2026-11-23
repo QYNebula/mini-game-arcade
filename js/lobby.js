@@ -52,7 +52,12 @@
       card.querySelector('[data-role="category"]').textContent = arcadeCategories[game.category];
       card.querySelector('[data-role="title"]').textContent = game.title;
       card.querySelector('[data-role="summary"]').textContent = game.summary;
-      card.querySelector("button").addEventListener("click", () => showGame(game));
+      const open = card.querySelector("button");
+      if (game.directEntry) open.removeAttribute("aria-haspopup");
+      open.addEventListener("click", () => {
+        if (game.directEntry) launchGame(game);
+        else showGame(game);
+      });
       return card;
     });
 
@@ -97,7 +102,7 @@
 
   function launchGame(game, mode) {
     const url = new URL(game.entry, document.baseURI);
-    url.searchParams.set("mode", mode);
+    if (mode) url.searchParams.set("mode", mode);
     window.location.assign(url);
   }
 

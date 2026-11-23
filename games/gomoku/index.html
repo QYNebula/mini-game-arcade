@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#f3f3eb">
+  <meta name="description" content="五子棋。挑战电脑或用房间码和朋友对弈。">
+  <title>五子棋 · 指尖游戏厅</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="../../js/save-store.js" defer></script>
+  <script src="rules.js" defer></script>
+  <script src="computer.js" defer></script>
+  <script src="online-config.js" defer></script>
+  <script src="../../js/room-client.js" defer></script>
+  <script src="game.js" defer></script>
+</head>
+<body>
+  <header class="masthead shell">
+    <a class="brand" href="../../index.html"><span class="brand-mark" aria-hidden="true"></span>指尖游戏厅</a>
+    <nav aria-label="五子棋导航">
+      <button type="button" class="quiet" id="go-modes" hidden>选择模式</button>
+      <button type="button" class="quiet" id="show-rules" aria-haspopup="dialog">规则</button>
+    </nav>
+  </header>
+  <main class="shell">
+    <section class="landing" id="modes" aria-labelledby="title">
+      <div class="landing-copy">
+        <h1 id="title">五子棋</h1>
+        <p class="intro">横、竖、斜连成五颗或更多，即可获胜。</p>
+        <div class="modes">
+          <button type="button" class="mode" id="select-solo">
+            <span class="piece-icon black" aria-hidden="true"></span>
+            <span><strong>单人对弈</strong><small>挑战电脑 · 本地续局</small></span>
+          </button>
+          <button type="button" class="mode" id="select-online">
+            <span class="double-piece" aria-hidden="true"></span>
+            <span><strong>多人联机</strong><small>建房或凭房间码加入</small></span>
+          </button>
+        </div>
+      </div>
+      <img class="landing-art" src="../../assets/gomoku.webp" alt="" width="768" height="768">
+    </section>
+
+    <section class="panel compact" id="solo-setup" aria-labelledby="solo-title" hidden>
+      <h1 id="solo-title" tabindex="-1">单人对弈</h1>
+      <form id="solo-form">
+        <fieldset>
+          <legend>执棋</legend>
+          <div class="choice-grid">
+            <label><input type="radio" name="color" value="1" checked><span><i class="piece-icon black" aria-hidden="true"></i>黑棋 · 先手</span></label>
+            <label><input type="radio" name="color" value="2"><span><i class="piece-icon white" aria-hidden="true"></i>白棋 · 后手</span></label>
+          </div>
+        </fieldset>
+        <fieldset>
+          <legend>电脑难度</legend>
+          <div class="choice-grid">
+            <label><input type="radio" name="difficulty" value="normal" checked><span>普通</span></label>
+            <label><input type="radio" name="difficulty" value="advanced"><span>进阶</span></label>
+          </div>
+        </fieldset>
+        <div class="actions">
+          <button class="primary" type="submit">开始新局</button>
+          <button class="secondary" type="button" id="resume-solo" hidden>继续棋局</button>
+        </div>
+      </form>
+    </section>
+
+    <section class="panel compact" id="online-setup" aria-labelledby="online-title" hidden>
+      <h1 id="online-title" tabindex="-1">多人联机</h1>
+      <div class="actions">
+        <button class="primary" type="button" id="create-room">创建房间</button>
+        <button class="secondary" type="button" id="resume-room" hidden>返回房间</button>
+      </div>
+      <form id="join-form" class="join-form">
+        <label for="room-code">房间码</label>
+        <div class="code-entry">
+          <input id="room-code" type="text" maxlength="6" minlength="6" required autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="输入 6 位房间码">
+          <button type="submit" class="secondary" id="join-room">加入房间</button>
+        </div>
+      </form>
+      <p class="notice" id="online-message" role="status" hidden></p>
+    </section>
+
+    <section class="panel compact" id="room-panel" aria-labelledby="room-title" hidden>
+      <div class="room-heading">
+        <div>
+          <h1 id="room-title" tabindex="-1">联机房间</h1>
+          <p class="room-code"><span>房间码</span> <strong id="show-code"></strong></p>
+        </div>
+        <button type="button" class="secondary" id="copy-invite">复制邀请链接</button>
+      </div>
+      <input id="invite-url" class="invite-url" aria-label="房间邀请链接" readonly hidden>
+      <div class="seats" id="seats"></div>
+      <p class="notice" id="room-message" role="status"></p>
+      <div class="actions">
+        <button type="button" class="primary" id="start-room" hidden>开始对弈</button>
+        <button type="button" class="secondary" id="leave-room">离开房间</button>
+      </div>
+    </section>
+
+    <section class="match" id="play-panel" aria-labelledby="play-title" hidden>
+      <header class="match-heading">
+        <div>
+          <p class="mode-name" id="mode-name"></p>
+          <h1 id="play-title" tabindex="-1">五子棋</h1>
+        </div>
+        <span class="move-count" id="move-count"></span>
+      </header>
+      <div class="match-layout">
+        <div class="board-area">
+          <div class="board-frame">
+            <div class="board" id="board" role="grid" aria-label="十五行十五列五子棋棋盘" aria-rowcount="15" aria-colcount="15"></div>
+          </div>
+        </div>
+        <aside class="match-tools">
+          <div class="players" id="players" aria-label="对弈双方"></div>
+          <p class="notice match-status" role="status"><span id="match-status"></span><span id="pause-remaining" aria-hidden="true"></span></p>
+          <div class="actions match-actions">
+            <button type="button" class="primary" id="confirm-move">确认落子</button>
+            <button type="button" class="secondary" id="undo-move" hidden>悔棋</button>
+            <button type="button" class="secondary" id="new-round" hidden>再来一局</button>
+            <button type="button" class="quiet" id="leave-match" hidden>认输并离开</button>
+          </div>
+        </aside>
+      </div>
+    </section>
+    <noscript><p>请开启 JavaScript 来开始对弈。</p></noscript>
+  </main>
+
+  <dialog class="dialog" id="rules-dialog" aria-labelledby="rules-title">
+    <h2 id="rules-title">五子棋规则</h2>
+    <p>15×15 棋盘，黑棋先下，双方交替在空交点落子。</p>
+    <p>横、竖或斜连成至少五颗同色棋子即可获胜。无禁手。棋盘下满且无人获胜算和棋。</p>
+    <p>多人对局掉线后可在 5 分钟内返回原位。超时中止本局，仍在线的玩家可以在原房间重开。</p>
+    <form method="dialog"><button type="submit" class="primary">明白了</button></form>
+  </dialog>
+  <dialog class="dialog" id="confirm-dialog" aria-labelledby="confirm-title">
+    <h2 id="confirm-title"></h2>
+    <p id="confirm-detail"></p>
+    <form method="dialog" class="actions">
+      <button type="submit" class="secondary" value="cancel" autofocus>取消</button>
+      <button type="submit" class="primary" value="confirm" id="confirm-action">确认</button>
+    </form>
+  </dialog>
+</body>
+</html>

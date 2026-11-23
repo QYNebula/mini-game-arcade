@@ -3,6 +3,7 @@ const arcadeCategories = {
   puzzle: "解谜",
   reaction: "反应",
   simulation: "经营",
+  board: "棋牌",
 };
 
 // The ID also identifies each game's cover and save.
@@ -24,5 +25,13 @@ const arcadeGames = [
     saveKey: "progress-v4",
     priorSaveKeys: ["progress-v3", "progress-v2"],
     entry: "games/progress/index.html",
+  },
+  {
+    id: "gomoku",
+    category: "board",
+    title: "五子棋",
+    summary: "挑战电脑，或凭房间码与朋友对弈",
+    entry: "games/gomoku/index.html",
+    directEntry: true,
   },
 ];
