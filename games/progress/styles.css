@@ -209,6 +209,105 @@ main.shell { padding: 24px 0 40px; }
 .rule p { font-size: 14px; }
 #departure .actions { justify-content: flex-start; margin: 9px 0 5px; }
 .ending h2 { margin-top: 4px; }
+.ending.after-replay { animation: ending-arrive .65s ease-out both; }
+
+.ending-replay {
+  position: fixed; inset: 0; width: 100%; height: 100dvh; max-width: none; max-height: none;
+  margin: 0; border: 0; overflow: auto;
+  padding: max(12px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right))
+    max(12px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+  color: #ffeee0; background: radial-gradient(ellipse at 50% 32%, #43272a, #1c1217 69%, #120e12);
+}
+.ending-replay[open] {
+  display: grid; grid-template-rows: auto minmax(min-content, 1fr) auto;
+  align-items: center; justify-items: center; gap: clamp(10px, 2vh, 24px);
+}
+.ending-replay::backdrop { background: #120e12; }
+.replay-skip { justify-self: end; color: #ffeee0; background: #37252b; border-color: #a8867980; }
+.replay-skip:hover { background: #574047; }
+.replay-scene { width: min(640px, 100%); }
+.replay-shot {
+  display: grid; justify-items: center; gap: clamp(4px, 1.5vh, 12px); text-align: center;
+  animation: replay-cut var(--shot-duration) ease-in-out both;
+}
+.replay-year { margin-top: 5px; color: #ecc8a5; font-size: 14px; font-variant-numeric: tabular-nums; letter-spacing: .14em; }
+.replay-caption { font-family: var(--serif); font-size: clamp(18px, 3.8vw, 30px); line-height: 1.5; text-wrap: balance; }
+.replay-progress { width: min(370px, 62vw); height: 2px; border-radius: 2px; background: #fff2da29; overflow: hidden; }
+.replay-progress::after {
+  content: ""; display: block; height: 100%; transform-origin: left center; background: #e9b78b;
+  animation: replay-progress var(--replay-duration) linear both;
+}
+.replay-art {
+  position: relative; isolation: isolate; overflow: hidden; width: 100%; aspect-ratio: 16 / 9; max-height: 43dvh;
+  border-radius: 10px; border: 1px solid #f2d6b748; box-shadow: 0 16px 54px #080406a6;
+  background: radial-gradient(ellipse at 57% 42%, #a27252, #553327 58%, #24181b 96%);
+}
+.replay-art::before, .replay-art::after { content: ""; position: absolute; }
+.replay-art[data-scene="record"]::before {
+  inset: 15% 28% -22%; background: linear-gradient(145deg, #e1b791, #976c51);
+  box-shadow: 0 7px 19px #2f1c19bd; transform: rotate(-13deg); border-radius: 2px;
+}
+.replay-art[data-scene="record"]::after {
+  inset: 11% 23% -24%; border-radius: 2px; box-shadow: 0 8px 28px #271413a6;
+  background: linear-gradient(#9e5040, #9e5040) 50% 17% / 50% 2px no-repeat,
+    repeating-linear-gradient(180deg, #85523859 0 1px, transparent 1px 11px) 49% 33% / 63% 42% no-repeat,
+    linear-gradient(130deg, #ffebc6, #d0a279);
+  transform-origin: left center; animation: replay-page var(--shot-duration) ease-out both;
+}
+.replay-art:is([data-scene="departure"], [data-scene="dismissed"]) {
+  --hall-light: #935b48; --wood: #61372d;
+  background: radial-gradient(ellipse at 50% 41%, var(--hall-light), #302126 56%, #1a171b 93%);
+}
+.replay-art[data-scene="dismissed"] { --hall-light: #696570; --wood: #3c3b45; }
+.replay-art:is([data-scene="departure"], [data-scene="dismissed"])::before {
+  inset: 11% 34% -2%; border: 1px solid #e2b18d83;
+  background: linear-gradient(144deg, #fff0bf, #d69b70 30%, var(--hall-light) 76%);
+  box-shadow: 0 0 50px #dbae7655;
+}
+.replay-art:is([data-scene="departure"], [data-scene="dismissed"])::after {
+  inset: 11% 34% -2%; border: 1px solid #140a0a88;
+  background: radial-gradient(circle at 12% 58%, #c8a075 0 2%, transparent 3%),
+    linear-gradient(90deg, #100c126e, transparent 22%, #140b10b3), var(--wood);
+  transform-origin: right; animation: replay-door 1.45s .2s ease-in-out both;
+}
+.replay-art[data-scene="prison"] {
+  background: radial-gradient(ellipse at 50% 34%, #a6bbbd, #33434d 39%, #141b23 77%);
+}
+.replay-art[data-scene="prison"]::before, .replay-art[data-scene="prison"]::after {
+  inset: 0 auto 0 0; width: 50%; border: 1px solid #8394a15f;
+  background: linear-gradient(#8597a1, #293540) var(--bolt-side) 56% / 15% 8px no-repeat,
+    repeating-linear-gradient(90deg, #0d14196e 0 6%, #9aabb570 6% 7%, transparent 7% 13%),
+    linear-gradient(155deg, #4d5c67, #222c34 67%, #111a20);
+  box-shadow: inset 0 0 32px #090f16b3; --door-open: -40%; --bolt-side: 100%;
+  animation: replay-gate .52s .3s cubic-bezier(.55,.12,.85,.48) both;
+}
+.replay-art[data-scene="prison"]::after { inset: 0 0 0 auto; --door-open: 40%; --bolt-side: 0%; }
+.replay-art[data-scene="elected"] {
+  background: linear-gradient(0deg, #261012 0 16%, transparent 17%),
+    repeating-linear-gradient(90deg, #4d1420, #8d2c33 4%, #3d101a 9%);
+}
+.replay-art[data-scene="elected"]::before {
+  inset: 0 5% 6%; background: radial-gradient(ellipse at 50% 42%, #ffe0a181, #e9a2534f 34%, transparent 69%);
+  animation: replay-spotlight 1.3s ease-out both;
+}
+.replay-art[data-scene="elected"]::after {
+  inset: auto 41% 15% 41%; height: 31%; border-top: 4px solid #e0aa65; border-radius: 3px 3px 0 0;
+  background: linear-gradient(110deg, #843e2c, #381b1c 76%); box-shadow: 0 12px 26px #1a090ca6;
+}
+@keyframes replay-cut {
+  0% { opacity: 0; }
+  12%, 87% { opacity: 1; }
+  100% { opacity: 0; }
+}
+@keyframes replay-page {
+  from { transform: perspective(600px) rotateY(-43deg) rotate(-7deg) translateY(12%); }
+  45%, 100% { transform: perspective(600px) rotateY(0deg) rotate(5deg); }
+}
+@keyframes replay-door { from { transform: scaleX(.13); } to { transform: scaleX(.98); } }
+@keyframes replay-gate { from { transform: translateX(var(--door-open)); } to { transform: translateX(0); } }
+@keyframes replay-spotlight { from { opacity: .12; transform: scale(.75); } to { opacity: 1; transform: scale(1.15); } }
+@keyframes replay-progress { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+@keyframes ending-arrive { from { opacity: 0; } to { opacity: 1; } }
 
 .dialog { width: min(560px, calc(100% - 28px)); max-height: calc(100dvh - 32px); overflow-y: auto; }
 .dialog::backdrop { background: #3b201ea0; }

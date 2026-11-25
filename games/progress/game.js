@@ -11,6 +11,32 @@
   const tabs = [...document.querySelectorAll("[data-view]")];
   const fresh = new URLSearchParams(location.search).get("mode") === "new";
   const legacy = arcadeSaves.read("progress");
+  const endingStories = {
+    retired: {
+      title: "最后一次走出办公室", scene: "departure", caption: "你把办公室的钥匙交给了接手的同事。",
+      detail: "你把办公室的钥匙交给接手的同事。走出楼门时，你才想起，明天不用再赶早会了。",
+    },
+    steady: {
+      title: "这张办公桌留给后来的人", scene: "departure", caption: "你拉开抽屉，收拾最后几件物品。",
+      detail: "退休那天，你清空了用了多年的办公桌。临出门时，同事照例说了声「明天见」，说完才想起今天是你最后一天上班。",
+    },
+    resign: {
+      title: "你的辞呈批下来了", scene: "departure", caption: "你把手头的工作交给了同事。",
+      detail: "辞呈获准后，你收拾好私人物品，走出了办公楼。手机弹出一条新消息，你看了一眼，退出了工作群。",
+    },
+    dismissed: {
+      title: "你的工牌被收回了", scene: "dismissed", caption: "你抱着装满私人物品的纸箱走出办公楼。",
+      detail: "开除公职的处分生效。你交回工牌，把私人物品装进一个纸箱。下楼时，电梯在你熟悉的楼层停了一下。",
+    },
+    sentenced: {
+      title: "铁门在你身后关上", scene: "prison", caption: "判决生效，你被送往监狱。",
+      detail: "判决生效后，你被送往监狱。入监那天，你交出了随身的手表。第二天清晨，你在点名声中醒来。",
+    },
+    elected: {
+      title: "你的名字在会场响起", scene: "elected", caption: "选举结果宣读完毕，会场响起掌声。",
+      detail: "中央委员会全体会议公布选举结果。你当选中央委员会总书记，从座位上起身，转向鼓掌的人们。",
+    },
+  };
   let replaceMode = fresh;
   let state = null;
   let exam = null;
@@ -19,6 +45,9 @@
   let revealItem = null;
   let revealed = false;
   let timers = [];
+  let replayPending = false;
+  let replayTimer = null;
+  let replayAudio = null;
 
   function element(tag, className, value) {
     const node = document.createElement(tag);
@@ -144,10 +173,12 @@
     if (!state) return;
     const previous = E.currentEvent(state)?.kind;
     const previousLog = state.log.at(-1);
+    const previousEnding = state.outcome;
     if (!action()) return;
+    if (!previousEnding && state.outcome) replayPending = true;
     save();
     const last = state.log.at(-1);
-    if (last && last !== previousLog) text("announcement", last.title + "。" + last.detail);
+    if (!state.outcome && last && last !== previousLog) text("announcement", last.title + "。" + last.detail);
     render();
     const current = E.currentEvent(state)?.kind;
     if (state.outcome) window.scrollTo(0, 0);
@@ -540,18 +571,140 @@
     }
   }
 
-  function renderEnding() {
+  function endingStory(ending) {
+    const story = endingStories[ending.kind];
+    if (!story) return { ...ending, scene: "record", caption: ending.title };
+    let detail = story.detail;
+    if (ending.kind === "retired") {
+      const limit = ending.detail?.match(/^达到 \d+ 岁的模拟生涯上限/)?.[0];
+      const departure = limit ? limit + "后，你办完了退休手续。" :
+        ending.detail?.includes("按本人申请") ? "你的退休申请获准。" : "你办完了退休手续。";
+      detail = departure + detail;
+    }
+    if (ending.detail?.includes("开除党籍")) detail += "你同时被开除党籍。";
+    return { ...story, detail };
+  }
+
+  function replayMoments(ending) {
+    const firstPost = state.stints[0]?.title || state.initialPost?.title || E.title(state);
+    const moments = [{ month: 0, caption: "你以" + firstPost + "的身份报到。" }];
+    const entries = state.log.filter(({ month }) => month > 0 && month < ending.month);
+    const appointments = {
+      任用生效: "你出任", 中央任用生效: "你当选", 职级晋升: "你的职级升为", 交流任职: "你调任", 遴选后转任: "你转任",
+    };
+    const appointed = entries.findLast(({ kind, title, detail }) =>
+      kind === "office" && Object.hasOwn(appointments, title) && detail && !detail.includes(" · 当轮胜算"));
+    if (appointed) {
+      moments.push({ month: appointed.month, caption: appointments[appointed.title] + appointed.detail.split(" → ").at(-1) + "。" });
+    } else {
+      const moved = state.stints.findLast((stint, index) => index > 0 && stint.from < ending.month &&
+        stint.position !== state.stints[index - 1].position);
+      if (moved) moments.push({ month: moved.from, caption: "你到新岗位报到，担任" + moved.title + "。" });
+    }
+
+    const cases = {
+      "发现问题，进入核查": "监察人员开始核查你的案卷。", 撤职后改任低岗: "受到处分后，你改任较低岗位。",
+      警告处分: "你收到了一份警告处分决定。", 记过处分: "记过处分写进了你的履历。",
+      检察机关提起公诉: "检察机关就你的案件提起了公诉。",
+    };
+    const other = entries.findLast(({ kind, title }) => kind === "audit" && Object.hasOwn(cases, title)) ||
+      entries.findLast(({ kind }) => kind === "event");
+    if (other && !moments.some(({ month }) => month === other.month)) {
+      moments.push({ month: other.month, caption: cases[other.title] || "你经手了「" + other.title + "」。" });
+    }
+    if (moments.length === 1) {
+      const assessment = state.assessments.findLast(({ month, rating }) => month < ending.month && rating !== "未定等次");
+      if (assessment) moments.push({ month: assessment.month, caption: "你的年度考核结果是「" + assessment.rating + "」。" });
+    }
+    return moments.sort((a, b) => a.month - b.month);
+  }
+
+  function renderEnding(arrive = false) {
     panel("ending");
     const ending = state.outcome;
+    const story = endingStory(ending);
+    byId("ending").classList.toggle("after-replay", arrive);
     text("ending-date", R.date(ending.month) + " · " + state.name);
-    text("ending-title", ending.title);
-    text("ending-detail", ending.detail);
+    text("ending-title", story.title);
+    text("ending-detail", story.detail);
     byId("ending-facts").replaceChildren(datum("最后任职", E.title(state)), datum("在岗时间", R.duration(ending.month)),
       datum("处理的重要事项", state.projects + " 件"), datum("终身危险值", E.danger(state) + "%"),
       datum("任用判定", state.attempts + " 次"), datum("例行检查", state.checks + " 次"));
     const highlights = state.log.filter((item) => item.kind === "audit" || item.kind === "office" &&
       ["任用生效", "职级晋升", "中央任用生效", "交流任职"].includes(item.title)).slice(-8);
-    timeline("ending-log", [{ kind: "office", month: 0, title: "入职报到", detail: state.stints[0].title }, ...highlights]);
+    timeline("ending-log", [{ kind: "office", month: 0, title: "入职报到", detail: state.stints[0]?.title || state.initialPost?.title }, ...highlights]);
+    if (arrive) {
+      window.scrollTo(0, 0);
+      byId("ending-title").focus({ preventScroll: true });
+    }
+  }
+
+  function playDoorSound() {
+    if (!replayAudio || document.hidden) return;
+    const audio = replayAudio;
+    const buffer = audio.createBuffer(1, Math.round(audio.sampleRate * 0.32), audio.sampleRate);
+    const samples = buffer.getChannelData(0);
+    for (let i = 0; i < samples.length; i++) {
+      const t = i / audio.sampleRate;
+      const ring = Math.sin(t * 2 * Math.PI * 142) + 0.45 * Math.sin(t * 2 * Math.PI * 317);
+      const impact = (Math.random() - 0.5) * 0.3 * Math.exp(-t * 55);
+      samples[i] = (ring * 0.15 + impact) * Math.min(1, t * 500) * Math.exp(-t * 21);
+    }
+    const source = audio.createBufferSource();
+    source.buffer = buffer;
+    source.connect(audio.destination);
+    source.start(audio.currentTime + 0.82);
+    audio.resume().catch(() => {});
+  }
+
+  function finishEndingReplay() {
+    const dialog = byId("ending-replay");
+    if (!dialog.open) return;
+    clearTimeout(replayTimer);
+    replayTimer = null;
+    if (replayAudio) {
+      replayAudio.close().catch(() => {});
+      replayAudio = null;
+    }
+    dialog.close();
+    renderEnding(true);
+  }
+
+  function playEndingReplay() {
+    const ending = state.outcome;
+    const story = endingStory(ending);
+    const moments = replayMoments(ending);
+    const total = moments.length === 1 ? 6200 : 7500;
+    const finale = 2500;
+    const memoryDuration = (total - finale) / moments.length;
+    const shots = [...moments, { month: ending.month, caption: story.caption }];
+    const dialog = byId("ending-replay");
+    dialog.style.setProperty("--replay-duration", total + "ms");
+    const Audio = window.AudioContext || window.webkitAudioContext;
+    if (story.scene === "prison" && Audio) {
+      try {
+        replayAudio = new Audio();
+        replayAudio.resume().catch(() => {});
+      } catch { replayAudio = null; }
+    }
+
+    let index = 0;
+    function showShot() {
+      const last = index === shots.length - 1;
+      const { month, caption } = shots[index++];
+      const duration = last ? finale : memoryDuration;
+      const shot = element("div", "replay-shot");
+      shot.style.setProperty("--shot-duration", duration + "ms");
+      const art = element("div", "replay-art");
+      art.dataset.scene = last ? story.scene : "record";
+      art.setAttribute("aria-hidden", "true");
+      shot.append(art, element("time", "replay-year", R.year(month) + " 年"), element("p", "replay-caption", caption));
+      byId("replay-scene").replaceChildren(shot);
+      replayTimer = setTimeout(last ? finishEndingReplay : showShot, duration);
+      if (last && story.scene === "prison") playDoorSound();
+    }
+    showShot();
+    dialog.showModal();
   }
 
   function clearCeremony() {
@@ -651,20 +804,26 @@
 
   function render() {
     if (!state) return;
-    if (state.outcome) renderEnding();
-    else {
-      panel("career");
-      renderBanner();
-      for (const tab of tabs) {
-        const selected = tab.dataset.view === view;
-        tab.setAttribute("aria-pressed", String(selected));
-        byId(tab.dataset.view).hidden = !selected;
-      }
-      if (view === "desk") renderDesk();
-      if (view === "dossier") renderDossier();
-      if (view === "violations") renderViolations();
-      if (view === "handbook") renderHandbook();
+    if (state.outcome) {
+      renderReveal();
+      if (state.reveals.length || byId("ending-replay").open) return;
+      const newEnding = replayPending;
+      replayPending = false;
+      if (newEnding && !matchMedia("(prefers-reduced-motion: reduce)").matches) playEndingReplay();
+      else renderEnding(newEnding);
+      return;
     }
+    panel("career");
+    renderBanner();
+    for (const tab of tabs) {
+      const selected = tab.dataset.view === view;
+      tab.setAttribute("aria-pressed", String(selected));
+      byId(tab.dataset.view).hidden = !selected;
+    }
+    if (view === "desk") renderDesk();
+    if (view === "dossier") renderDossier();
+    if (view === "violations") renderViolations();
+    if (view === "handbook") renderHandbook();
     renderReveal();
   }
 
@@ -721,6 +880,11 @@
     event.preventDefault();
     if (!revealed) openReveal(true);
   });
+  byId("replay-skip").addEventListener("click", finishEndingReplay);
+  byId("ending-replay").addEventListener("cancel", (event) => {
+    event.preventDefault();
+    finishEndingReplay();
+  });
   byId("confirm-dialog").addEventListener("close", (event) => {
     const action = confirmation;
     confirmation = null;
@@ -744,6 +908,7 @@
     E.upgrade(record.state.data, record.version) : record.state.data) : null;
   if (E.valid(career)) {
     state = career;
+    replayPending = Boolean(state.outcome && state.reveals.length);
     if (record === prior) save();
     else {
       byId("saved").hidden = false;

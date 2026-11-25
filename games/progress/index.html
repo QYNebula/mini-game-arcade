@@ -6,14 +6,14 @@
   <meta name="theme-color" content="#f4ece4">
   <meta name="description" content="从模拟招考开始，安排任期中的工作与休养，争取下一次任用。">
   <title>进步模拟器 · 指尖游戏厅</title>
-  <link rel="stylesheet" href="styles.css?v=4">
+  <link rel="stylesheet" href="styles.css?v=4.3">
   <script src="../../js/save-store.js" defer></script>
   <script src="rules.js?v=4.2" defer></script>
   <script src="content.js?v=4" defer></script>
   <script src="stories.js?v=4.2" defer></script>
   <script src="exam.js?v=2" defer></script>
   <script src="career.js?v=4.2" defer></script>
-  <script src="game.js?v=4.2" defer></script>
+  <script src="game.js?v=4.3" defer></script>
 </head>
 <body>
   <header class="masthead">
@@ -175,7 +175,7 @@
     </section>
 
     <section id="ending" class="compact ending" aria-labelledby="ending-title" hidden>
-      <header class="paper-banner"><div><p class="overline" id="ending-date"></p><h1 id="ending-title"></h1><p id="ending-detail"></p></div></header>
+      <header class="paper-banner"><div><p class="overline" id="ending-date"></p><h1 id="ending-title" tabindex="-1"></h1><p id="ending-detail"></p></div></header>
       <div class="paper stack">
         <dl class="facts" id="ending-facts"></dl>
         <h2>关键记录</h2>
@@ -210,6 +210,11 @@
         <button type="button" class="button primary" id="reveal-next">跳过动画</button>
       </div>
     </section>
+  </dialog>
+  <dialog id="ending-replay" class="ending-replay" aria-label="生涯回放">
+    <button type="button" class="button replay-skip" id="replay-skip" autofocus>跳过回放</button>
+    <div class="replay-scene" id="replay-scene" aria-live="polite" aria-atomic="true"></div>
+    <div class="replay-progress" aria-hidden="true"></div>
   </dialog>
   <dialog class="dialog paper" id="confirm-dialog" aria-labelledby="confirm-heading">
     <form method="dialog">
