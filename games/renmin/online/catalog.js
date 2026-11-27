@@ -22,7 +22,7 @@ export const roles = {
 };
 
 export const dayActions = {
-  intel: { label: "情报", time: "过去", detail: "查目标昨晚有无违法行为，结果发给纪检全员。" },
+  intel: { label: "情报", time: "过去", detail: "查目标上一夜结束时是否持有【违法】，结果发给在场纪检。" },
   arrest: { label: "拘捕", time: "现在", detail: "拘捕一名非纪检玩家，结算时核验执行人本人持有的证据。" },
   follow: { label: "跟踪", time: "将来", detail: "封锁当晚口岸，夜末向指定成员发放取证结果。" },
 };

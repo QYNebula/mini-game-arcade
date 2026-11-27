@@ -2,11 +2,29 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { botNames } from "../../games/renmin/online/catalog.js";
 import { callModel, configuredModel, playable, updateReads } from "./agents.js";
-import { dmKey, jobPriority, jobTime, queueJob, queueOutreach, queuePublicNotice, queueReply, spoken } from "./discussion.js";
+import { budgetReason, dmKey, jobPriority, jobTime, queueJob, queueOutreach, queuePublicNotice, queueReply, spoken } from "./discussion.js";
 import { createMatch, viewFor } from "./match.js";
 
 const make = () => createMatch(botNames, 48096, 0);
 const role = (game, key) => game.players.find((player) => player.role === key);
+
+test("reserve model calls for human team conversations and then formal actions", () => {
+  const audit = { purpose: "speech", channel: "audit", reply: { actor: 1 }, priority: 2 };
+  const dm = { ...audit, channel: "dm:1:5", priority: 0 };
+  const publicReply = { ...audit, channel: "public" };
+  const unprompted = { ...audit, reply: undefined };
+  const action = { purpose: "dayAction" };
+  assert.equal(budgetReason(300, 259, publicReply), null);
+  assert.equal(budgetReason(300, 260, publicReply), "discussion_budget_reserved");
+  assert.equal(budgetReason(300, 260, unprompted), "discussion_budget_reserved");
+  for (const job of [audit, dm]) {
+    assert.equal(budgetReason(300, 279, job), null);
+    assert.equal(budgetReason(300, 280, job), "action_budget_reserved");
+  }
+  assert.equal(budgetReason(300, 299, action), null);
+  assert.equal(budgetReason(300, 300, action), "request_budget_reached");
+  assert.equal(budgetReason(0, 0, action), "request_budget_reached");
+});
 
 test("human DMs keep a separate queue and can get more than two replies in a day", () => {
   const game = make();

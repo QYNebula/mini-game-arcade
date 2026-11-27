@@ -75,6 +75,16 @@ export function jobPriority(job) {
   return job.purpose === "speech" ? (job.priority ?? 3) : -1;
 }
 
+export function budgetReason(limit, calls, job) {
+  const remaining = limit - calls;
+  if (remaining <= 0) return "request_budget_reached";
+  if (job.purpose !== "speech") return null;
+  const reserve = Math.min(40, Math.ceil(limit / 4));
+  if (remaining <= Math.ceil(reserve / 2)) return "action_budget_reserved";
+  const humanPrivateReply = job.reply && job.priority <= 2 && job.channel !== "public";
+  return remaining <= reserve && !humanPrivateReply ? "discussion_budget_reserved" : null;
+}
+
 export function spoken(match, job, now) {
   (match.lastSpoke ??= {})[job.seat] = now;
   (match.chatReady ??= {})[job.channel] = now + (channelGap[job.channel] ?? 450);

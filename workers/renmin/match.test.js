@@ -131,7 +131,82 @@ test("listening covers orders and framing, with one card per implicated seat", (
   assert.deepEqual(game.evidence.filter((card) => card.holder === investigator.id).map((card) => card.target).sort(),
     [political.id, target.id].sort());
   assert.equal(game.inbox[investigator.id].filter((entry) => entry.kind === "hacker").length, 2);
-  assert.equal(game.attempts.some((entry) => entry.actor === target.id), false);
+  assert.equal(viewFor(game, target.id).self.illegal, false);
+});
+
+test("intel finds an idle corrupt player's night card and only audit seats receive the result", () => {
+  const game = make();
+  const chief = role(game, "director");
+  const target = role(game, "chair");
+  openRegular(game);
+  finishRegular(game);
+  submit(game, chief, { type: "dayAction", kind: "intel", target: target.id }, due(game));
+  for (const player of game.players) {
+    const view = viewFor(game, player.id);
+    const result = view.inbox.find((note) => note.kind === "intel");
+    assert.equal(result?.found, faction(player) === "audit" ? true : undefined);
+    if (result) {
+      assert.equal(result.night, 1);
+      assert.equal(result.basis, "card");
+    }
+    assert(!Object.hasOwn(view, "nightCards"));
+  }
+  assert(!Object.hasOwn(game.public.find((note) => note.kind === "intel"), "found"));
+});
+
+test("dawn effects change the next night's snapshot, not the night that just ended", () => {
+  const game = make();
+  const chief = role(game, "director");
+  const worker = role(game, "worker");
+  advance(game, due(game));
+  submit(game, worker, { type: "prelude", kind: "blockade" }, due(game) - 10);
+  advance(game, due(game));
+  finishRegular(game);
+  assert.equal(worker.illegal, true);
+  submit(game, chief, { type: "dayAction", kind: "intel", target: worker.id }, due(game));
+  assert.equal(game.inbox[chief.id].findLast((note) => note.kind === "intel").found, false);
+  advance(game, due(game));
+  finishRegular(game);
+  submit(game, chief, { type: "dayAction", kind: "intel", target: worker.id }, due(game));
+  assert.equal(game.inbox[chief.id].findLast((note) => note.kind === "intel").found, true);
+});
+
+test("framing an audit seat renews suspension without creating a card", () => {
+  const game = make();
+  const director = role(game, "director");
+  const deputy = role(game, "investigator");
+  const frame = { chair: { kind: "frame", target: director.id } };
+  openRegular(game);
+  finishRegular(game, frame);
+  for (const day of [2, 3]) {
+    assert.equal(director.suspendedThrough, day);
+    assert.equal(viewFor(game, director.id).self.illegal, false);
+    assert.equal(decisionMaker(game).id, deputy.id);
+    submit(game, deputy, { type: "dayAction", kind: "intel", target: director.id }, due(game));
+    assert.equal(game.inbox[deputy.id].findLast((note) => note.kind === "intel").found, false);
+    advance(game, due(game));
+    finishRegular(game, day === 2 ? frame : {});
+  }
+  assert.equal(decisionMaker(game).id, director.id);
+  assert.equal(director.suspendedThrough, 0);
+  assert.equal(director.illegal, false);
+});
+
+test("a room started before rollout keeps its original framing and intel adjudication", () => {
+  const game = make();
+  delete game.nightCards;
+  game.attempts = [];
+  const director = role(game, "director");
+  const deputy = role(game, "investigator");
+  const chair = role(game, "chair");
+  openRegular(game);
+  finishRegular(game, { chair: { kind: "frame", target: director.id } });
+  assert.equal(viewFor(game, director.id).self.illegal, true);
+  assert.equal(viewFor(game, director.id).intelBasis, "behavior");
+  submit(game, deputy, { type: "dayAction", kind: "intel", target: chair.id }, due(game));
+  const result = game.inbox[deputy.id].findLast((note) => note.kind === "intel");
+  assert.equal(result.basis, "behavior");
+  assert.equal(result.found, true);
 });
 
 test("blocked escape still costs money and the commissioner may bypass the same block", () => {
@@ -331,7 +406,7 @@ test("framing leaves an uncommitted middle seat free to help audit or actively t
     assert.equal(viewFor(game, executive.id).self.illegal, true);
 
     submit(game, director, { type: "dayAction", kind: "intel", target: executive.id }, due(game));
-    assert.equal(viewFor(game, director.id).inbox.findLast((entry) => entry.kind === "intel").found, false);
+    assert.equal(viewFor(game, director.id).inbox.findLast((entry) => entry.kind === "intel").found, true);
     submit(game, executive, { type: "prelude", kind }, due(game) - 100);
     assert(advance(game, due(game)));
     const { self } = viewFor(game, executive.id);

@@ -74,7 +74,7 @@ export function createMatch(names, seed, now, requestedRoles = []) {
     evidence: [], public: [], inbox: Object.fromEntries(names.map((_, i) => [i + 1, []])),
     pendingDepartures: [], auditChoices: {}, auditHistory: [], preludeChoices: {}, nightChoices: {},
     follow: null, listen: null, umbrella: null, detention: null, winner: null,
-    attempts: [], escaped: 0, rebatePending: false, raidUntil: 0, directedDay: 0,
+    nightCards: [], escaped: 0, rebatePending: false, raidUntil: 0, directedDay: 0,
     dawnDay: 0, blockadeDay: 0, blockade: null, survey: null,
   };
   game.players = names.map((name, i) => {
@@ -97,11 +97,14 @@ export function createMatch(names, seed, now, requestedRoles = []) {
 }
 
 function mark(game, player, cause = "action") {
-  player.illegal = true;
   if (faction(player) === "audit") {
+    player.illegal = !game.nightCards;
     player.suspendedThrough = game.day + 1;
     note(game, player.id, "warning", "你将停职至第 " + player.suspendedThrough + " 晚结束。");
-  } else if (faction(player) === "middle" && cause === "frame") {
+    return;
+  }
+  player.illegal = true;
+  if (faction(player) === "middle" && cause === "frame") {
     note(game, player.id, "warning", "你被栽赃并获得【违法】。本局胜负归属由你自己的行动决定。");
   } else if (faction(player) === "middle" && !player.turned) {
     player.turned = true;
@@ -156,7 +159,7 @@ function checkWin(game, now) {
 }
 
 function behavior(game, actor, action, targets, result) {
-  game.attempts.push({ actor: actor.id, day: game.day });
+  game.attempts?.push({ actor: actor.id, day: game.day });
   const listener = game.listen;
   if (listener?.watched !== actor.id || !live(find(game, listener.holder))) return;
   const description = seat(game, actor.id) + "发动「" + action + "」" +
@@ -181,7 +184,7 @@ function lockAudit(game) {
 
 function beginNight(game, now) {
   phase(game, "prelude", now, timing.prelude);
-  game.attempts = game.attempts.filter((entry) => entry.day >= game.day - 1);
+  if (game.attempts) game.attempts = game.attempts.filter((entry) => entry.day >= game.day - 1);
   game.preludeChoices = {};
   game.nightChoices = {};
   for (const player of corrupt(game)) {
@@ -242,10 +245,15 @@ function dayAction(game, choice, now) {
       note(game, player.id, "failed", text, { action, target: target.id });
     }
   } else if (action === "intel") {
-    announce(game, "intel", "纪检方查询了" + seat(game, target.id) + "昨晚的行为。", { target: target.id });
-    const found = game.attempts.some((entry) => entry.day === game.day - 1 && entry.actor === target.id);
-    for (const player of audit(game)) note(game, player.id, "intel", seat(game, target.id) + "昨晚" +
-      (found ? "有" : "无") + "违法行为。", { target: target.id, found });
+    const night = game.day - 1;
+    const subject = seat(game, target.id);
+    const basis = game.nightCards ? "card" : "behavior";
+    const found = basis === "card" ? game.nightCards.includes(target.id) :
+      Boolean(game.attempts?.some((entry) => entry.day === night && entry.actor === target.id));
+    announce(game, "intel", "纪检方对" + subject + "使用了情报。", { target: target.id });
+    const result = basis === "card" ? "第 " + night + " 夜结束时，" + subject +
+      (found ? "持有" : "未持有") + "【违法】。" : subject + "昨晚" + (found ? "有" : "无") + "违法行为。";
+    for (const player of audit(game)) note(game, player.id, "intel", result, { target: target.id, found, night, basis });
   } else if (action === "follow") {
     game.follow = { target: target.id, holder: member.id, night: game.day };
     announce(game, "follow", "纪检方开始跟踪" + seat(game, target.id) + "并封锁其出逃口岸。", { target: target.id });
@@ -434,6 +442,10 @@ function finishNight(game, now) {
       note(game, player.id, "system", "停职期满，你已复职。");
     }
   }
+  if (game.nightCards) {
+    // Capture the completed night before dawn effects can add a card.
+    game.nightCards = game.players.filter((player) => player.illegal && faction(player) !== "audit").map((player) => player.id);
+  }
   game.day++;
   phase(game, "day", now, timing.discussion);
   publishDepartures(game);
@@ -602,6 +614,7 @@ export function viewFor(game, id) {
   const ownPrelude = game.preludeChoices[id];
   return {
     stage: game.stage, day: game.day, phase: game.phase, opened: game.opened, until: game.until, seats,
+    intelBasis: game.nightCards ? "card" : "behavior",
     canExtend: mayExtend(game, id),
     self: {
       id, role: viewer.role, alive: live(viewer), used: viewer.used, money: viewer.money,

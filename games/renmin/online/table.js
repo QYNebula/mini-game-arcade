@@ -688,7 +688,8 @@ function ruleText() {
   const once = [
     ["开局与讨论", "真人先到先得选角色。九席填满后由房主开局，其余座位随机发牌。纪检和反派各自认识开局队友。首日讨论从两分钟起算，结束后自动入夜。之后从五分钟起算，到点局长可拍板或继续讨论。每位在场真人每天可在倒计时结束前为全体加时一分钟。局长离场或停职时依次由侦查处长、省委书记代理。无人能拍板时倒计时结束自动入夜。"],
     ["发言与证据", "白天可发公屏、阵营群和私信，夜里只读。点其他玩家的座位即可私信。证据只指向一人，放在持有人判定区。高官需同一位在岗执行人本人持有两张。"],
-    ["白天行动", "情报查昨晚是否执行过违法行为，结果给全体纪检。拘捕、跟踪和突袭只可选开局属于非纪检的在场玩家。拘捕指定执行人，跟踪指定取证人并封锁当晚口岸。黑客可以监听纪检成员。提交常规行动即用掉当天次数。纪检技能随提交或自动入夜锁定，未选择按跳过。"],
+    ["白天行动", (room?.match?.intelBasis === "behavior" ? "本局按开局规则查询上一夜实际违法行为。纪检被栽赃后会在停职期间显示临时牌。" :
+      dayActions.intel.detail + "纪检被栽赃只会停职。") + "拘捕、跟踪和突袭只可选择在场的非纪检玩家。拘捕指定执行人，跟踪指定取证人并封锁当晚口岸。黑客可监听纪检，并查当夜实际发生的行为。提交常规行动即用掉当天次数。纪检技能随提交或自动入夜锁定，未选择按跳过。"],
     ["夜间结算", "先到账，再执行突袭、黑客。反派和中间人有三十秒选技能，反派有九十秒选常规行动。先判栽赃，再统一结算除掉，最后判出逃。栽赃三百万，除掉五百万，出逃三百万。"],
     ["胜利条件", "场上无纪检以外带违法的待拘捕对象时，纪检方获胜。反派成功出逃的实带资产累计 " +
       goal.toLocaleString("en-US") + " 万，或纪检全员身亡，即获胜。"],
@@ -699,8 +700,10 @@ function ruleText() {
     .flatMap(([title, detail]) => [element("h3", "", title), element("p", "", detail)]));
 }
 
-$("open-rules").addEventListener("click", () => $("rules-dialog").showModal());
-ruleText();
+$("open-rules").addEventListener("click", () => {
+  ruleText();
+  $("rules-dialog").showModal();
+});
 
 const invite = globalThis.arcadeRooms.normalizeCode(new URL(location.href).searchParams.get("room"));
 if (invite) $("join-code").value = invite;

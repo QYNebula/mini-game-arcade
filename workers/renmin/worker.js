@@ -3,8 +3,9 @@ import { playerAlias, roles } from "../../games/renmin/online/catalog.js";
 import { advance, applyChoice, channelFor, chatExportScope, createMatch, extendDiscussion, faction, find, live, nextTransition, viewFor } from "./match.js";
 import { callModel, configuredChatModel, configuredModel, fallback, playable, updateReads } from "./agents.js";
 import { purgeDiagnostics, traceFor, writeDiagnostic } from "./diagnostics.js";
-import { dmKey, jobPriority, jobTime, publicLead, queueJob, queueOutreach, queuePublicNotice, queueReply, spoken } from "./discussion.js";
-import { auditConversation, decisionRevision, outsideTeamDm, reviewTactics, roundFacts, teamConversation } from "./strategy.js";
+import { budgetReason, dmKey, jobPriority, jobTime, publicLead, queueJob, queueOutreach, queuePublicNotice, queueReply, spoken } from "./discussion.js";
+import { rulebookVersion } from "./rulebook.js";
+import { auditConversation, auditIntent, decisionRevision, describeAuditState, outsideTeamDm, reviewTactics, roundFacts, teamConversation } from "./strategy.js";
 
 const protocol = "arcade-room-v1";
 const gameKey = "renmin";
@@ -65,16 +66,10 @@ function removePerson(room, id) {
 
 function callLimit(env) {
   const value = Number(env.MATCH_CALL_LIMIT);
-  return Number.isSafeInteger(value) && value >= 0 ? Math.min(400, value) : 300;
+  return Number.isSafeInteger(value) && value >= 0 ? Math.min(300, value) : 300;
 }
 
-function budgetReason(env, match, job) {
-  const limit = callLimit(env);
-  if (match.usage.calls >= limit) return "request_budget_reached";
-  const reserved = Math.min(40, Math.ceil(limit / 4));
-  if (job.purpose === "speech" && match.usage.calls >= limit - reserved) return "action_budget_reserved";
-  return null;
-}
+const budgetReached = new Set(["request_budget_reached", "action_budget_reserved", "discussion_budget_reserved"]);
 
 function reviewChoice(context, data) {
   let reason;
@@ -89,7 +84,7 @@ export default {
     if (path === "/health" && request.method === "GET") {
       const enabled = Boolean(env.DASHSCOPE_API_KEY);
       return json({ service: "renmin-playtest", model: enabled ? configuredModel(env) : null,
-        chatModel: enabled ? configuredChatModel(env) : null, callLimit: callLimit(env) });
+        chatModel: enabled ? configuredChatModel(env) : null, callLimit: callLimit(env), rulebookVersion });
     }
     if (!path.startsWith("/api/")) return env.ASSETS.fetch(request);
     const origin = request.headers.get("Origin");
@@ -280,7 +275,7 @@ export class RenminRoom extends DurableObject {
       const views = bots.map((player) => viewFor(game, player.id));
       const audit = views.filter((view) => faction(view.self) === "audit");
       for (const [i, view] of audit.entries()) {
-        queueJob(match, view.self.id, "speech", now + 4000 + i * 1500, { channel: "audit" });
+        if (game.day > 1 || i === 0) queueJob(match, view.self.id, "speech", now + 4000 + i * 1500, { channel: "audit" });
         if (view.auditSkill) queueJob(match, view.self.id, "auditSkill", now + (game.day === 1 ? 20_000 : 170_000));
       }
       const corrupt = views.filter((view) => faction(view.self) === "corrupt");
@@ -579,10 +574,11 @@ export class RenminRoom extends DurableObject {
     const memory = job.plan ? undefined : match.minds?.[seat];
     const round = side === "audit" && (job.purpose !== "speech" || auditConversation(view, job.channel)) ?
       roundFacts(view, memory) : undefined;
+    const intent = round && job.purpose === "speech" ? auditIntent(view, incoming) : null;
     return {
       view, threads, purpose: job.purpose, channel: job.channel, plan: job.plan, incoming, ownRemarks,
       replyTo: reply?.actor ?? job.replyTo, mustReply: Boolean(reply && job.priority <= 2),
-      memory, round, tactical: reviewTactics(view, job, incoming), briefed: job.briefed,
+      memory, round, intent, tactical: reviewTactics(view, job, intent), briefed: job.briefed,
       tacticsApplied: job.tacticsApplied, retry: job.retry, outreach: job.outreach, initiated: job.initiated,
       notice: job.notice ? game.public.find((entry) => entry.id === job.notice) : undefined,
     };
@@ -593,6 +589,8 @@ export class RenminRoom extends DurableObject {
     const { action } = review;
     if (!action) return { outcome: "rejected", reason: review.reason };
     if (job.purpose === "speech") {
+      let text = action.text;
+      let prepared;
       if (action.tactics) {
         const { proposal, registration } = action.tactics;
         if (registration && !applyChoice(match.game, job.seat, registration, now)) {
@@ -600,12 +598,11 @@ export class RenminRoom extends DurableObject {
         }
         const mind = ((match.minds ??= {})[job.seat] ??= {});
         if (proposal) mind.proposal = { ...proposal, day: context.view.day };
-        const { channel, reply, priority, depth } = job;
-        const tacticsApplied = registration ? "skill" : proposal ? "current" : undefined;
-        const next = queueJob(match, job.seat, "speech", now, {
-          channel, reply, priority, depth, briefed: true, tacticsApplied, traceRoot: job.traceRoot ?? job.id,
-        });
-        return { outcome: "prepared", draftJob: next.id, proposal, registration };
+        const view = viewFor(match.game, job.seat);
+        const updated = { ...context, view, round: roundFacts(view, mind) };
+        text = (registration ? describeAuditState(updated, "skill") : "") +
+          (proposal ? describeAuditState(updated, "current") : "") || describeAuditState(updated);
+        prepared = { proposal, registration };
       }
       if (action.plan) {
         const { reply, priority, depth, notice } = job;
@@ -615,11 +612,12 @@ export class RenminRoom extends DurableObject {
           plan: action.plan, traceRoot: job.traceRoot ?? job.id,
         });
         return { outcome: "planned", draftJob: next.id, peer: action.contact, ...action.plan };
-      } else if (action.text) {
+      } else if (text) {
         spoken(match, job, now);
-        const posted = this.post(room, job.seat, job.channel, action.text, now);
+        const posted = this.post(room, job.seat, job.channel, text, now);
         queueReply(match, room.seats, posted, now, job);
-        return { outcome: "posted", messageId: posted.id, reference: action.reference, text: posted.text };
+        return { outcome: prepared ? "prepared" : "posted", ...prepared, messageId: posted.id,
+          reference: action.reference, text: posted.text };
       }
       return { outcome: "quiet" };
     }
@@ -649,12 +647,17 @@ export class RenminRoom extends DurableObject {
       writeDiagnostic(this.ctx, this.env.DIAGNOSTICS, trace, "model_rejected", { reason: rejected });
     }
 
+    if (job.purpose === "speech" && !context.mustReply && budgetReached.has(fallbackReason)) {
+      writeDiagnostic(this.ctx, this.env.DIAGNOSTICS, trace, "decision", { outcome: "quiet", source: fallbackReason });
+      return;
+    }
     match.usage.fallback++;
     if (fallbackReason === "watchdog_timeout") match.usage.lastError = "百炼请求超时";
     const safeContext = { ...context, tactical: false };
     const compose = job.purpose === "speech" && !context.plan &&
       (job.channel === "public" || outsideTeamDm(context.view, job.channel));
-    const chosen = compose ? { ...safeContext, plan: playable(safeContext, fallback(safeContext))?.plan } : safeContext;
+    const chosen = context.tactical ? context : compose ?
+      { ...safeContext, plan: playable(safeContext, fallback(safeContext))?.plan } : safeContext;
     const safe = reviewChoice(chosen, fallback(chosen));
     const result = this.deliver(room, job, chosen, safe, now);
     writeDiagnostic(this.ctx, this.env.DIAGNOSTICS, trace, "fallback", {
@@ -662,20 +665,21 @@ export class RenminRoom extends DurableObject {
     });
   }
 
-  completeJob(room, job, context, review, now, fallbackReason) {
+  completeJob(room, job, context, review, now, fallbackReason, source = "model") {
     const match = room.match;
     match.jobs = match.jobs.filter((item) => item.id !== job.id);
     if (job.purpose === "dayAction" && context.round?.proposal) {
       return this.resolveJob(room, job, context, reviewChoice(context, context.round.proposal), now, null, "plan");
     }
-    const stale = job.revision !== undefined && job.revision !== decisionRevision(context);
+    const stale = source === "model" && job.revision !== undefined && job.revision !== decisionRevision(context);
     const actionRetry = (job.purpose !== "speech" || context.tactical) &&
       ["model_truncated", "bad_model_json", "invalid_action", "invalid_tactical_choice"].includes(review?.reason);
     const speechRetry = job.purpose === "speech" && (review?.reason === "first_night_not_completed" ||
       job.plan && ["unverified_public_reference", "inactive_speech_target"].includes(review?.reason));
     const retry = !job.retry && (actionRetry || speechRetry);
     const timeLeft = context.view.phase === "day" && context.view.day > 1 || now + 7800 < context.view.until;
-    if ((stale && !job.revised || retry) && timeLeft && this.env.DASHSCOPE_API_KEY && !budgetReason(this.env, match, job)) {
+    if ((stale && !job.revised || retry) && timeLeft && this.env.DASHSCOPE_API_KEY &&
+        !budgetReason(callLimit(this.env), match.usage.calls, job)) {
       const { channel, reply, priority, depth, plan, briefed, tacticsApplied, notice, initiated, outreach } = job;
       const next = queueJob(match, job.seat, job.purpose, now + 50, {
         channel, reply, priority, depth, plan, briefed, tacticsApplied, notice, initiated, outreach,
@@ -687,7 +691,7 @@ export class RenminRoom extends DurableObject {
       });
       return;
     }
-    this.resolveJob(room, job, context, stale ? null : review, now, stale ? "decision_changed" : fallbackReason);
+    this.resolveJob(room, job, context, stale ? null : review, now, stale ? "decision_changed" : fallbackReason, source);
   }
 
   async finishModel(trace, job, context, now) {
@@ -773,11 +777,14 @@ export class RenminRoom extends DurableObject {
           continue;
         }
       }
-      const reviewed = job.reviewed ?? (Object.hasOwn(job, "result") ? reviewChoice(context, job.result) : null);
+      const verifiedReply = job.purpose === "speech" && !context.tactical && context.round &&
+        (context.intent || context.view.day === 1 && !context.incoming.length) ? describeAuditState(context) : "";
+      const reviewed = verifiedReply ? { action: { text: verifiedReply } } :
+        job.reviewed ?? (Object.hasOwn(job, "result") ? reviewChoice(context, job.result) : null);
       const fallbackReason = job.expires ? "watchdog_timeout" : !this.env.DASHSCOPE_API_KEY ? "model_disabled" :
-        budgetReason(this.env, match, job);
+        budgetReason(callLimit(this.env), match.usage.calls, job);
       if (reviewed || fallbackReason || job.purpose === "dayAction" && context.round?.proposal) {
-        this.completeJob(room, job, context, reviewed, now, fallbackReason);
+        this.completeJob(room, job, context, reviewed, now, fallbackReason, verifiedReply ? "record" : "model");
         this.step(room, now);
         const type = context.tactical ? "auditSkill" : job.purpose;
         if (type !== "speech") audiences.push(this.choiceAudience(room, job.seat, type, stage));
