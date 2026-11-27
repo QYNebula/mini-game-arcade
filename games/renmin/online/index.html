@@ -6,16 +6,16 @@
   <meta name="theme-color" content="#151b20">
   <meta name="description" content="九席联机身份桌游，真人和电脑同桌。">
   <title>人民的名义 · 联机试玩</title>
-  <link rel="stylesheet" href="table.css">
+  <link rel="stylesheet" href="table.css?v=1">
   <script src="room-client.js" defer></script>
-  <script src="table.js" type="module"></script>
+  <script src="table.js?v=1" type="module"></script>
 </head>
 <body>
   <header class="masthead">
     <div class="shell masthead-inner">
       <div class="brand"><span class="brand-icon" aria-hidden="true"></span><span>人民的名义</span></div>
       <div class="header-actions">
-        <button type="button" id="open-rules" class="quiet">规则</button>
+        <button type="button" id="open-rules" class="quiet" aria-haspopup="dialog">规则</button>
         <button type="button" id="leave" class="quiet" hidden>离开房间</button>
       </div>
     </div>
@@ -112,9 +112,28 @@
     </div>
   </main>
 
-  <dialog id="rules-dialog" class="sheet">
-    <div class="sheet-head"><h2>对局规则</h2><form method="dialog"><button class="quiet" type="submit">关闭</button></form></div>
-    <div class="sheet-body" id="rules-content"></div>
+  <dialog id="rules-dialog" class="sheet rules-sheet" aria-labelledby="rules-title">
+    <div class="sheet-head"><h2 id="rules-title">对局规则</h2><form method="dialog"><button class="quiet" type="submit" autofocus>关闭</button></form></div>
+    <div class="rules-toolbar">
+      <div class="rules-views" role="group" aria-label="规则阅读方式">
+        <button id="rules-quick" type="button" aria-pressed="true" aria-controls="rules-content">速查摘要</button>
+        <button id="rules-full" type="button" aria-pressed="false" aria-controls="rulebook">查看完整规则</button>
+      </div>
+      <a class="rules-download" href="rulebook.docx" download="人民的名义-桌游规则书.docx">下载 Word</a>
+    </div>
+    <div class="sheet-body rules-scroll" id="rules-scroll" role="region" aria-label="规则内容" tabindex="0">
+      <div id="rules-content"></div>
+      <article id="rulebook" aria-labelledby="rulebook-title" hidden>
+        <h3 id="rulebook-title">人民的名义桌游规则书</h3>
+        <p class="rulebook-edition">联机规则确认版 <time id="rulebook-version"></time></p>
+        <aside id="rulebook-legacy" class="rulebook-legacy" hidden></aside>
+        <nav class="rulebook-directory" aria-labelledby="rulebook-directory-title">
+          <h4 id="rulebook-directory-title" tabindex="-1">目录</h4>
+          <ul id="rulebook-links"></ul>
+        </nav>
+        <div id="rulebook-chapters"></div>
+      </article>
+    </div>
   </dialog>
   <dialog id="events-dialog" class="sheet">
     <div class="sheet-head"><h2>公开通报</h2><form method="dialog"><button class="quiet" type="submit">关闭</button></form></div>

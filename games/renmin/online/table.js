@@ -1,4 +1,5 @@
 import { auditTargetAllowed, dayActions, factions, goal, nightActions, roles, skillActions, statusLabels, timing } from "./catalog.js";
+import { legacyRulings, rulebook, rulebookVersion } from "./rulebook.js";
 
 const endpoint = location.origin;
 const gameKey = "renmin";
@@ -700,8 +701,62 @@ function ruleText() {
     .flatMap(([title, detail]) => [element("h3", "", title), element("p", "", detail)]));
 }
 
+function rulebookParagraphs(rules) {
+  return rules.map(([title, detail]) => {
+    const paragraph = element("p");
+    paragraph.append(element("strong", "", title), "　" + detail);
+    return paragraph;
+  });
+}
+
+function rulebookLink(label, heading) {
+  const link = element("a", "", label);
+  link.href = "#" + heading.id;
+  link.addEventListener("click", (event) => {
+    event.preventDefault();
+    heading.focus({ preventScroll: true });
+    heading.scrollIntoView({ block: "start" });
+  });
+  return link;
+}
+
+function renderRulebook() {
+  const version = $("rulebook-version");
+  version.dateTime = rulebookVersion;
+  version.textContent = rulebookVersion;
+  $("rulebook-legacy").append(element("h4", "", "本局沿用开局时的规则"), ...rulebookParagraphs(legacyRulings));
+  const directory = $("rulebook-directory-title");
+  for (const [key, chapter] of Object.entries(rulebook)) {
+    const heading = element("h4", "", chapter.title);
+    heading.id = "rulebook-" + key;
+    heading.tabIndex = -1;
+    const item = element("li");
+    item.append(rulebookLink(chapter.title, heading));
+    $("rulebook-links").append(item);
+
+    const section = element("section", "rulebook-chapter");
+    const back = rulebookLink("回到目录", directory);
+    back.className = "rulebook-return";
+    section.append(heading, ...rulebookParagraphs(chapter.rules), back);
+    $("rulebook-chapters").append(section);
+  }
+}
+
+function showRules(full) {
+  if (full && !$("rulebook-chapters").firstChild) renderRulebook();
+  show("rules-content", !full);
+  show("rulebook", full);
+  show("rulebook-legacy", room?.match?.intelBasis === "behavior");
+  $("rules-quick").setAttribute("aria-pressed", String(!full));
+  $("rules-full").setAttribute("aria-pressed", String(full));
+  $("rules-scroll").scrollTop = 0;
+}
+
+$("rules-quick").addEventListener("click", () => showRules(false));
+$("rules-full").addEventListener("click", () => showRules(true));
 $("open-rules").addEventListener("click", () => {
   ruleText();
+  showRules(false);
   $("rules-dialog").showModal();
 });
 

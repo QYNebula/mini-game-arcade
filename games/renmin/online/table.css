@@ -179,6 +179,38 @@ summary { color: var(--muted); font-size: .89rem; }
 .sheet-body { padding: 14px; }
 .sheet-body h3 { margin: 11px 0 4px; }
 .sheet-body p { margin-bottom: 7px; color: #e3ddcf; }
+.rules-sheet[open] { display: flex; flex-direction: column; overflow: hidden; }
+.rules-sheet .sheet-head, .rules-toolbar { flex: none; }
+.rules-toolbar {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 5px;
+  padding: 7px 10px; border-bottom: 1px solid var(--line);
+}
+.rules-views { display: flex; flex-wrap: wrap; gap: 5px; }
+.rules-toolbar button, .rules-download { padding: 5px 8px; font-size: .88rem; }
+.rules-views button[aria-pressed="true"] { border-color: #b9926e; background: #403329; color: #ffe0bb; }
+.rules-download {
+  display: inline-flex; align-items: center; min-height: 42px; border: 1px solid #806751;
+  border-radius: 6px; color: var(--gold); font-weight: 650; text-decoration: none; white-space: nowrap;
+}
+.rules-download:hover { border-color: var(--gold); }
+.rules-scroll { min-height: 0; overflow: auto; overscroll-behavior: contain; }
+.rules-scroll:focus-visible { outline-offset: -3px; }
+#rulebook-title { margin-top: 0; }
+.sheet-body .rulebook-edition { color: var(--muted); font-size: .88rem; }
+.rulebook-directory, .rulebook-legacy { padding: 12px; border: 1px solid var(--line); border-radius: 8px; }
+.rulebook-legacy { margin-bottom: 12px; border-color: #806751; background: #322b25; }
+.rulebook-directory h4, .rulebook-legacy h4, .rulebook-chapter h4 { margin: 0 0 8px; scroll-margin-block-start: 14px; }
+.rulebook-directory ul { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px; margin: 0; padding: 0; list-style: none; }
+.rulebook-directory a {
+  display: flex; align-items: center; min-height: 42px; padding: 5px 8px;
+  border-radius: 5px; background: var(--raised); color: var(--text); font-size: .88rem; text-decoration: none;
+}
+.rulebook-directory a:hover { color: var(--gold); }
+.rulebook-chapter { margin-top: 18px; padding-top: 12px; border-top: 1px solid var(--line); }
+.rulebook-chapter h4 { color: var(--gold); font-size: 1.05rem; }
+.rulebook-chapter p, .rulebook-legacy p { line-height: 1.7; margin-bottom: 10px; }
+.rulebook-chapter strong { color: var(--text); }
+.rulebook-return { display: inline-flex; align-items: center; min-height: 42px; color: var(--gold); font-size: .86rem; }
 #chat-export-text {
   display: block; width: 100%; min-height: 150px; height: min(42svh, 360px); padding: 9px; resize: vertical;
   border: 1px solid var(--line); border-radius: 6px; background: #161d21; color: inherit; font: inherit;
