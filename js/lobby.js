@@ -28,7 +28,7 @@
   let currentGame;
 
   function coverUrl(game) {
-    return `assets/${game.id}.webp`;
+    return game.cover || `assets/${game.id}.webp`;
   }
 
   function gameSave(game) {

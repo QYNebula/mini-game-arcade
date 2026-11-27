@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#151b20">
+  <meta name="description" content="九席联机身份桌游，真人和电脑同桌。">
+  <title>人民的名义 · 联机试玩</title>
+  <link rel="stylesheet" href="table.css">
+  <script src="room-client.js" defer></script>
+  <script src="table.js" type="module"></script>
+</head>
+<body>
+  <header class="masthead">
+    <div class="shell masthead-inner">
+      <div class="brand"><span class="brand-icon" aria-hidden="true"></span><span>人民的名义</span></div>
+      <div class="header-actions">
+        <button type="button" id="open-rules" class="quiet">规则</button>
+        <button type="button" id="leave" class="quiet" hidden>离开房间</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="shell welcome" id="welcome">
+    <section class="hero">
+      <img src="cover.webp" alt="" width="1600" height="900" fetchpriority="high">
+      <div class="hero-copy">
+        <h1>人民的名义</h1>
+        <p>九席身份桌游。白天交换线索，夜里各自行动。</p>
+        <div class="entry-actions">
+          <button type="button" class="primary" id="create">创建房间</button>
+          <form id="join-form" class="join-form">
+            <label for="join-code" class="sr-only">六位房间码</label>
+            <input id="join-code" name="code" maxlength="6" placeholder="六位房间码" autocomplete="off" autocapitalize="characters" spellcheck="false" required>
+            <button type="submit">加入房间</button>
+          </form>
+        </div>
+        <p class="entry-note" id="welcome-status" role="status">一位真人也可以填满电脑后开局。</p>
+      </div>
+    </section>
+  </main>
+
+  <main class="shell workspace" id="lobby" hidden>
+    <div class="heading">
+      <div><p class="muted">等待开局</p><h1 id="lobby-title"></h1></div>
+      <button type="button" id="copy-invite">复制邀请</button>
+    </div>
+    <section class="panel table-panel">
+      <div class="panel-title"><h2>座位</h2><span class="muted" id="lobby-count"></span></div>
+      <div class="seat-grid" id="lobby-seats"></div>
+      <section class="role-picker" aria-labelledby="pick-role-title">
+        <div class="panel-title"><h2 id="pick-role-title">选角色</h2><button type="button" id="random-role" class="quiet compact">随机角色</button></div>
+        <div class="seat-grid" id="lobby-roles"></div>
+      </section>
+      <div class="lobby-actions">
+        <button type="button" id="fill">填满电脑</button>
+        <button type="button" class="primary" id="start">开始对局</button>
+      </div>
+      <p class="muted" id="lobby-note" role="status"></p>
+    </section>
+  </main>
+
+  <main class="shell workspace" id="game" hidden>
+    <div class="heading round-heading">
+      <div><p class="muted" id="round-day"></p><h1 id="round-phase"></h1></div>
+      <div class="round-actions">
+        <span class="clock" id="clock" aria-live="off"></span>
+        <button type="button" class="compact" id="extend-discussion" hidden>＋1 分钟</button>
+        <button type="button" class="quiet jump-action" id="jump-action">行动</button>
+      </div>
+    </div>
+    <div class="status-banner" id="pause-note" role="status" hidden></div>
+    <div class="winner-banner" id="winner" hidden></div>
+    <div class="game-grid">
+      <section class="panel table-panel game-table" aria-label="桌上玩家">
+        <div class="panel-title"><h2>九席圆桌</h2><span class="muted" id="room-label"></span></div>
+        <div class="seat-grid" id="game-seats"></div>
+      </section>
+      <section class="panel chat-panel" aria-label="聊天">
+        <div class="panel-title"><h2>聊天</h2><button type="button" id="open-events" class="quiet compact">公开通报</button></div>
+        <div id="channels" class="channels" role="group" aria-label="聊天频道"></div>
+        <div class="announcement" id="latest-event" hidden></div>
+        <div id="chat-log" class="chat-log" aria-label="频道消息">
+          <button type="button" class="quiet compact older" id="older" hidden>查看更早的消息</button>
+          <div id="chat-lines"></div>
+        </div>
+        <form id="chat-form" class="chat-form">
+          <label class="sr-only" for="message">发言内容</label>
+          <input id="message" name="text" maxlength="280" placeholder="发到公屏" autocomplete="off">
+          <button class="primary" type="submit" id="send">发送</button>
+        </form>
+        <p class="muted chat-hint" id="chat-hint"></p>
+      </section>
+      <aside class="side" aria-label="个人桌面">
+        <section class="panel identity" id="identity">
+          <div class="identity-head">
+            <span id="role-mark" class="role-mark" aria-hidden="true"></span>
+            <div><h2 id="role-name"></h2><p class="muted" id="role-side"></p></div>
+          </div>
+          <p id="role-detail"></p>
+        </section>
+        <section class="panel cards-panel" aria-labelledby="cards-title">
+          <div class="panel-title"><h2 id="cards-title">私人判定区</h2></div>
+          <div id="cards" class="cards"></div>
+          <details id="notices"><summary>私人消息 <span class="muted" id="notice-count"></span></summary><div id="private-notices"></div></details>
+        </section>
+        <section class="panel action-panel" id="action-panel" tabindex="-1" aria-labelledby="action-title">
+          <div class="panel-title"><h2 id="action-title">行动</h2></div>
+          <div id="actions"></div>
+        </section>
+      </aside>
+    </div>
+  </main>
+
+  <dialog id="rules-dialog" class="sheet">
+    <div class="sheet-head"><h2>对局规则</h2><form method="dialog"><button class="quiet" type="submit">关闭</button></form></div>
+    <div class="sheet-body" id="rules-content"></div>
+  </dialog>
+  <dialog id="events-dialog" class="sheet">
+    <div class="sheet-head"><h2>公开通报</h2><form method="dialog"><button class="quiet" type="submit">关闭</button></form></div>
+    <div class="sheet-body" id="events"></div>
+  </dialog>
+  <dialog id="leave-dialog" class="sheet small-sheet">
+    <div class="sheet-head"><h2>离开房间？</h2></div>
+    <div class="sheet-body"><p>在场玩家离开时，这一局结束，房间可以补齐座位后重开。</p></div>
+    <form method="dialog" class="sheet-foot"><button value="cancel" autofocus>返回</button><button value="leave" class="primary">离开</button></form>
+  </dialog>
+  <dialog id="chat-export-dialog" class="sheet" aria-labelledby="chat-export-title">
+    <div class="sheet-head"><h2 id="chat-export-title">本席可见聊天</h2><form method="dialog"><button class="quiet" type="submit">关闭</button></form></div>
+    <div class="sheet-body">
+      <p id="chat-export-status" role="status"></p>
+      <textarea id="chat-export-text" aria-label="聊天记录" readonly></textarea>
+    </div>
+    <div class="sheet-foot">
+      <button id="chat-export-download" type="button">下载文本</button>
+      <button id="chat-export-copy" class="primary" type="button">复制文字</button>
+    </div>
+  </dialog>
+  <dialog id="custody-dialog" class="custody" aria-labelledby="custody-title">
+    <div class="custody-content">
+      <p class="muted" id="custody-label">调查通报</p>
+      <h2 id="custody-title"></h2>
+      <p id="custody-note"></p>
+      <div id="custody-actions" class="custody-actions"></div>
+      <progress id="custody-progress" max="8200" value="0" aria-label="拘捕结算进度"></progress>
+    </div>
+  </dialog>
+  <div id="toast" class="toast" role="status" hidden></div>
+  <noscript><p class="shell">请启用 JavaScript 以游玩。</p></noscript>
+</body>
+</html>

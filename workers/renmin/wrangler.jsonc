@@ -1,0 +1,26 @@
+{
+  "$schema": "../rooms/node_modules/wrangler/config-schema.json",
+  "name": "renmin-arcade-playtest",
+  "main": "worker.js",
+  "compatibility_date": "2026-11-23",
+  "workers_dev": true,
+  "preview_urls": false,
+  "keep_vars": true,
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "run_worker_first": ["/api/*", "/health"]
+  },
+  "durable_objects": {
+    "bindings": [{ "name": "ROOMS", "class_name": "RenminRoom" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["RenminRoom"] }],
+  "d1_databases": [
+    {
+      "binding": "DIAGNOSTICS",
+      "database_name": "renmin-playtest-diagnostics",
+      "database_id": "10df7cb6-1d87-42b6-b24a-655c273bd994"
+    }
+  ],
+  "triggers": { "crons": ["*/10 * * * *"] }
+}
