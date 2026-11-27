@@ -40,7 +40,7 @@ const arcadeGames = [
     title: "人民的名义",
     summary: "九席身份桌游，白天交换线索，夜里各自行动",
     cover: "games/renmin/cover.webp",
-    entry: "https://renmin-arcade-playtest.qynebula-arcade.workers.dev/",
+    entry: "https://renmin.hmarcade.dpdns.org/",
     directEntry: true,
   },
 ];
